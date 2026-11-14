@@ -133,7 +133,7 @@ def main():
         if sha256_file(rendering['dataset']) != rendering['dataset_sha256']:
             raise ValueError('Replay dataset hash no longer matches')
         source = args.source_video
-    out = args.output or args.run_dir / 'review' 
+    out = args.output or args.run_dir / 'review'
     out.mkdir(parents=True, exist_ok=False)
     dest = out / 'demo.mp4'
     subprocess.run([
