@@ -22,7 +22,18 @@ checkout_revision() {
     [[ -z $(git -C "$path" status --porcelain --untracked-files=no) ]] || {
         echo "Refusing to overwrite source changes in $path" >&2; return 2;
     }
-    git -C "$path" fetch --depth 1 origin "$rev"
+    git -C "$path" config remote.origin.promisor true
+    git -C "$path" config remote.origin.partialclonefilter blob:none
+    if [[ $path == "$MOMAGEN_ROOT/BEHAVIOR-1K" ]]; then
+        # Skip unrelated documentation/media; retain all runtime packages.
+        git -C "$path" sparse-checkout init --cone
+        git -C "$path" sparse-checkout set OmniGibson/omnigibson bddl/bddl joylo/gello joylo/configs joylo/assets joylo/experiments joylo/scripts
+    fi
+    if [[ $path == "$MOMAGEN_ROOT/robomimic" ]]; then
+        git -C "$path" sparse-checkout init --cone
+        git -C "$path" sparse-checkout set robomimic
+    fi
+    git -C "$path" fetch --filter=blob:none --depth 1 origin "$rev"
     git -C "$path" checkout --detach "$rev"
 }
 checkout_revision "$MOMAGEN_URL" "$MOMAGEN_REV" "$MOMAGEN_ROOT"

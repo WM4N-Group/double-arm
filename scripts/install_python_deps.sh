@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/server_env.sh"
 CONSTRAINTS="$SCRIPT_DIR/../config/constraints.txt"
+exec 9>"$DOUBLE_ARM_ROOT/cache/python-install.lock"
+flock -n 9 || { echo "Another dependency installation is running." >&2; exit 2; }
 for path in "$MOMAGEN_ROOT/setup.py" "$MOMAGEN_ROOT/BEHAVIOR-1K/OmniGibson/setup.py" "$MOMAGEN_ROOT/robomimic/setup.py"; do
     [[ -f $path ]] || { echo "Missing source: $path" >&2; exit 2; }
 done

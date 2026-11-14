@@ -83,6 +83,20 @@ ACCEPT_NVIDIA_EULA=YES ACCEPT_BEHAVIOR_DATASET_TERMS=YES \
 
 此阶段可能下载较大资产并编译运动规划依赖，需要查看远端日志；不能只凭 pip 安装成功声称仿真已经跑通。
 
+## 最小仿真入口（尚未执行验收）
+
+许可确认、安装和资产准备完成后，在服务器执行：
+
+```bash
+source /mnt/yuanyue/double-arm/code/scripts/server_env.sh
+# 接受标志仅在明确确认许可后设置。
+ACCEPT_NVIDIA_EULA=YES python /mnt/yuanyue/double-arm/code/scripts/isaac_smoke.py
+ACCEPT_NVIDIA_EULA=YES ACCEPT_BEHAVIOR_DATASET_TERMS=YES \
+  bash /mnt/yuanyue/double-arm/code/scripts/run_momagen_smoke.sh
+```
+
+第二个脚本只做一次有时间上限的 `pick_cup` 生成尝试，输出到唯一命名的 `runs/` 子目录，不删除旧实验。只有统计显示成功并生成非空 HDF5，才报告示范生成成功。首次尝试可能失败，需按日志诊断，而不是视为环境必定已跑通。
+
 ## 验收顺序
 
 1. GPU / Vulkan 可见。
@@ -94,3 +108,11 @@ ACCEPT_NVIDIA_EULA=YES ACCEPT_BEHAVIOR_DATASET_TERMS=YES \
 7. 再建立训练集、策略训练和独立评测。
 
 每一步分别记录，不将“源码已下载”“依赖已安装”“仿真已启动”“任务已成功”“模型已训练”混为一谈。
+
+## 轻量工作流检查
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+这里只检查脚本语法、SSH 参数转义、固定版本和忽略规则，不启动仿真，也不在本机训练。

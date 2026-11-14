@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Source on the SERVER before running any simulation or training.
 export DOUBLE_ARM_ROOT=${DOUBLE_ARM_ROOT:-/mnt/yuanyue/double-arm}
+if [[ ! -d $DOUBLE_ARM_ROOT ]]; then
+    echo "Remote persistent root not found: $DOUBLE_ARM_ROOT. Run this script on the server, not locally." >&2
+    return 2 2>/dev/null || exit 2
+fi
 export MOMAGEN_ROOT="$DOUBLE_ARM_ROOT/src/MoMaGen"
 export VIRTUAL_ENV="$DOUBLE_ARM_ROOT/envs/momagen"
 export PATH="$VIRTUAL_ENV/bin:$DOUBLE_ARM_ROOT/tools/bin:$PATH"
@@ -15,4 +19,7 @@ export UV_LINK_MODE=copy
 export WANDB_MODE=${WANDB_MODE:-offline}
 # Headless mode; do NOT set an EULA acceptance flag here automatically.
 export OMNIGIBSON_HEADLESS=1
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/double-arm-runtime-$(id -u)}
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
 mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$HF_HOME" "$TORCH_HOME" "$DOUBLE_ARM_ROOT/runs" "$DOUBLE_ARM_ROOT/logs"
