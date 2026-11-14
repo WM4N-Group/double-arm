@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/server_env.sh"
 source "$SCRIPT_DIR/../config/upstream.env"
 mkdir -p "$DOUBLE_ARM_ROOT/src"
+export GIT_LFS_SKIP_SMUDGE=1
 checkout_revision() {
     local url=$1 rev=$2 path=$3 current
     if [[ ! -e "$path/.git" ]]; then
@@ -39,3 +40,5 @@ checkout_revision() {
 checkout_revision "$MOMAGEN_URL" "$MOMAGEN_REV" "$MOMAGEN_ROOT"
 checkout_revision https://github.com/StanfordVL/BEHAVIOR-1K.git "$BEHAVIOR_REV" "$MOMAGEN_ROOT/BEHAVIOR-1K"
 checkout_revision https://github.com/ChengshuLi/robomimic.git "$ROBOMIMIC_REV" "$MOMAGEN_ROOT/robomimic"
+
+checkout_revision "$CUROBO_URL" "$CUROBO_REV" "$DOUBLE_ARM_ROOT/src/curobo"

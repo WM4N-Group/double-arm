@@ -8,6 +8,10 @@ fi
 export MOMAGEN_ROOT="$DOUBLE_ARM_ROOT/src/MoMaGen"
 export VIRTUAL_ENV="$DOUBLE_ARM_ROOT/envs/momagen"
 export PATH="$VIRTUAL_ENV/bin:$DOUBLE_ARM_ROOT/tools/bin:$PATH"
+export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+export PATH="$CUDA_HOME/bin:$PATH"
+export OMNIGIBSON_DATA_PATH="$DOUBLE_ARM_ROOT/data"
+export OMNI_KIT_ALLOW_ROOT=1
 export PIP_CACHE_DIR="$DOUBLE_ARM_ROOT/cache/pip"
 export UV_CACHE_DIR="$DOUBLE_ARM_ROOT/cache/uv"
 export XDG_CACHE_HOME="$DOUBLE_ARM_ROOT/cache/xdg"
@@ -28,4 +32,4 @@ export OMNIGIBSON_HEADLESS=1
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/double-arm-runtime-$(id -u)}
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
-mkdir -p "$TMPDIR" "$XDG_CACHE_HOME" "$HF_HOME" "$TORCH_HOME" "$DOUBLE_ARM_ROOT/runs" "$DOUBLE_ARM_ROOT/logs"
+mkdir -p "$OMNIGIBSON_DATA_PATH" "$TMPDIR" "$XDG_CACHE_HOME" "$HF_HOME" "$TORCH_HOME" "$DOUBLE_ARM_ROOT/runs" "$DOUBLE_ARM_ROOT/logs"

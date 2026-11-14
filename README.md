@@ -36,7 +36,7 @@
 | `cache/` | 包下载、编译和运行缓存 |
 | `logs/` | 安装、诊断、运行日志 |
 
-BEHAVIOR 默认数据目录可能位于其源码树的 `datasets/` 下；它也在服务器持久化盘，不在本机。根目录的共享盘剩余容量不代表用户配额。
+运行脚本设置 `OMNIGIBSON_DATA_PATH` 为远端 `data/`，统一放置机器人、场景和任务实例。根目录的共享盘剩余容量不代表用户配额。
 
 本地已有 PDF 保留，但 `.gitignore` 排除 PDF、模型、数据、视频和环境，不推到 GitHub。不在本机安装 Isaac、CUDA 工具链或训练依赖。
 
@@ -83,7 +83,24 @@ ACCEPT_NVIDIA_EULA=YES ACCEPT_BEHAVIOR_DATASET_TERMS=YES \
 
 此阶段可能下载较大资产并编译运动规划依赖，需要查看远端日志；不能只凭 pip 安装成功声称仿真已经跑通。
 
-## 最小仿真入口（尚未执行验收）
+## 有限部署流水线与状态查看
+
+许可确认后，在服务器记录接受标志到 `code/config/licenses.local.env`（权限 600，Git 忽略），必要时将网络入口设置到 `code/config/runtime.local.env`。不要将密码、数据密钥、资产放入这些可公开的示例或 Git。
+
+```bash
+# 在服务器执行；后台运行，关闭本地编辑器不会停止任务。
+nohup bash /mnt/yuanyue/double-arm/code/scripts/run_server_pipeline.sh \
+  > /mnt/yuanyue/double-arm/logs/pipeline.log 2>&1 < /dev/null &
+
+# 在本地执行：只通过 SSH 读取小型状态和日志，不运行仿真。
+./scripts/show_remote_status.sh
+```
+
+流水线有单实例锁，按阶段记录 `logs/pipeline-status.json`。它只执行一次部署与有时间上限的最小任务，不是定时监控或长期训练。失败后保留日志并停止；不要仅看进程退出码之外的“安装完成”文字。
+
+资产下载可能较久：固定场景包约 31.28 GB，另有约 0.5 GB 机器人资产和 0.1 GB 任务实例，解包还需额外空间。所有资产在服务器下载和 SHA-256 校验，Git 只保存小型版本／校验清单。
+
+## 最小仿真入口
 
 许可确认、安装和资产准备完成后，在服务器执行：
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SERVER ONLY. This stage is explicitly gated on licensing confirmation.
+# SERVER ONLY. Explicit license gate and resumable, pinned stage entry points.
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/server_env.sh"
@@ -10,8 +10,10 @@ if [[ ${ACCEPT_NVIDIA_EULA:-NO} != YES || ${ACCEPT_BEHAVIOR_DATASET_TERMS:-NO} !
     exit 3
 fi
 export OMNI_KIT_ACCEPT_EULA=YES
-export PIP_CONSTRAINT="$SCRIPT_DIR/../config/constraints.txt"
-# Use the installer from the pinned project; do not substitute current Isaac Sim.
-cd "$MOMAGEN_ROOT/BEHAVIOR-1K"
-./setup.sh --omnigibson --bddl --joylo --dataset --primitives \
-    --confirm-no-conda --accept-nvidia-eula --accept-dataset-tos
+case ${1:-all} in
+    simulator) exec bash "$SCRIPT_DIR/install_isaac.sh" ;;
+    motion) exec bash "$SCRIPT_DIR/install_motion_planning.sh" ;;
+    assets) exec python -u "$SCRIPT_DIR/prepare_asset_bundles.py" --manifest "$SCRIPT_DIR/../config/assets.json" ;;
+    all) exec bash "$SCRIPT_DIR/run_server_pipeline.sh" ;;
+    *) echo 'Usage: install_simulator_assets.sh [all|simulator|motion|assets]' >&2; exit 2 ;;
+esac

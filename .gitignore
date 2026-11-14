@@ -47,3 +47,5 @@ __pycache__/
 
 # Explicit license acceptance is machine-local, never public
 config/licenses.local.env
+
+config/*.local.env

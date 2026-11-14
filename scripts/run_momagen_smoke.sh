@@ -15,7 +15,7 @@ cd "$MOMAGEN_ROOT"
 python momagen/scripts/generate_configs.py > "$RUN_DIR/config-generation.log" 2>&1
 for scene in Rs_int house_single_floor; do
     src="$MOMAGEN_ROOT/momagen/scene_instances/$scene"
-    dest="$MOMAGEN_ROOT/BEHAVIOR-1K/datasets/2025-challenge-task-instances/scenes/$scene/json"
+    dest="$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances/scenes/$scene/json"
     [[ -d $src ]] || { echo "Missing scene instances: $src" >&2; exit 2; }
     mkdir -p "$dest"
     # Preserve pre-existing files; check any conflicts rather than overwrite assets.

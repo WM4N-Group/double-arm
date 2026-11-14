@@ -1,0 +1,25 @@
+{
+  "repo_id": "behavior-1k/zipped-datasets",
+  "revision": "9f0d57d465726976ed98138d3f8b8ca3e2186775",
+  "provenance": "File sizes and LFS SHA-256 read from the official huggingface.co API on 2026-11-14",
+  "files": [
+    {
+      "filename": "omnigibson-robot-assets.zip",
+      "target": "omnigibson-robot-assets",
+      "size": 501401227,
+      "sha256": "5e9fe726172c8b4beb4ba4e12dbf5cf6c5791553a05c52be661eb2d6a3d241b8"
+    },
+    {
+      "filename": "behavior-1k-assets-3.7.2rc1.zip",
+      "target": "behavior-1k-assets",
+      "size": 31280662307,
+      "sha256": "3bd7cdc1a8c5621768c2aaaf57c12a024560ab4f49d0162e540e769d8b165e8b"
+    },
+    {
+      "filename": "2025-challenge-task-instances.zip",
+      "target": "2025-challenge-task-instances",
+      "size": 105293007,
+      "sha256": "6262a496c82a534f42166ca1569ef28dc4cd9e53ffd0f9f8b0e7ecb8c62acde3"
+    }
+  ]
+}

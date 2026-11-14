@@ -21,7 +21,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_upstream_revisions_are_pinned(self):
         text = (ROOT / 'config/upstream.env').read_text()
-        for key in ('MOMAGEN_REV', 'BEHAVIOR_REV', 'ROBOMIMIC_REV'):
+        for key in ('MOMAGEN_REV', 'BEHAVIOR_REV', 'ROBOMIMIC_REV', 'CUROBO_REV'):
             self.assertRegex(text, rf'(?m)^{key}=[0-9a-f]{{40}}$')
 
     def test_large_files_and_local_settings_are_ignored(self):
