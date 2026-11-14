@@ -108,7 +108,7 @@ def main():
     tp = np.concatenate([e[3] for e in train])
     y = ta.copy(); y[:, JOINT] -= tp[:, JOINT]
     x_mean, x_std = tx.mean(0), np.maximum(tx.std(0), 0.05)
-    y_mean, y_std = y.mean(0), np.maximum(y.std(0), 0.02)
+    y_mean, y_std = y.mean(0), np.maximum(y.std(0), 0.002)
     y_std[:3] = np.maximum(y.std(0)[:3], 0.002)
     y_mean[GRIP] = 0; y_std[GRIP] = 1
     norm = dict(x_mean=x_mean, x_std=x_std, y_mean=y_mean, y_std=y_std,
@@ -162,7 +162,15 @@ def main():
                 model.eval()
                 with torch.no_grad():
                     vl=float(torch.stack([loss_fn(model(bx),by) for bx,by in [batch(va) for _ in range(8)]]).mean())
-                record={'step':step,'train_loss':float(loss),'val_loss':vl,'elapsed_s':time.time()-start}
+                with torch.no_grad():
+                    vx,vy=batch(va);vp=model(vx)
+                    physical_error=(vp-vy)*norm_t['y_std']
+                    base_mae=float(physical_error[:,:,:3].abs().mean())
+                    joint_mae=float(physical_error[:,:,JOINT].abs().mean())
+                    grip_accuracy=float(((vp[:,:,GRIP]>0)==(vy[:,:,GRIP]>0)).float().mean())
+                record={'step':step,'train_loss':float(loss),'val_loss':vl,'elapsed_s':time.time()-start,
+                        'val_base_command_mae':base_mae,'val_joint_target_mae_rad':joint_mae,
+                        'val_gripper_accuracy':grip_accuracy}
                 log.write(json.dumps(record)+'\n'); print(json.dumps(record),flush=True)
                 checkpoint={'model':model.state_dict(),'obs_dim':len(x_mean),'history':args.history,
                      'history_stride':args.history_stride,'horizon':args.horizon,'hidden':args.hidden,

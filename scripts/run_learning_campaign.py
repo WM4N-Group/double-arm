@@ -19,13 +19,29 @@ import time
 def now(): return datetime.now(timezone.utc).isoformat()
 
 
+class AttachedWorker:
+    """Observe an existing generator without claiming ownership of its process."""
+    def __init__(self,pid,run): self.pid,self.run=pid,run
+    def poll(self):
+        result=self.run/'process-result.json'
+        if result.exists():return int(json.loads(result.read_text())['generator_exit_status'])
+        try:
+            state=Path(f'/proc/{self.pid}/stat').read_text().split()[2]
+            return 1 if state=='Z' else None
+        except FileNotFoundError:return 1
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--official-run',required=True,type=Path)
     p.add_argument('--gpu1-run',required=True,type=Path)
     p.add_argument('--root',type=Path,default=Path('/mnt/yuanyue/double-arm'))
     p.add_argument('--max-hours',type=float,default=7)
+    p.add_argument('--gpu0-run',type=Path)
+    p.add_argument('--gpu0-pid',type=int)
+    p.add_argument('--extra-run-dir',action='append',default=[],type=Path)
     a=p.parse_args()
+    if bool(a.gpu0_run)!=bool(a.gpu0_pid):p.error('--gpu0-run and --gpu0-pid must be supplied together')
     if not str(a.root).startswith('/mnt/'): raise ValueError('Server persistent root required')
     script=Path(__file__).resolve().parent
     campaign=a.root/'runs'/f'tidy-learning-campaign-{datetime.now().strftime("%Y%m%d-%H%M%S")}'
@@ -35,7 +51,10 @@ def main():
        'task':'r1_tidy_table_D0','robot':'R1','caveat':'Single active arm baseline; not a bimanual completion claim',
        'official_run':str(a.official_run),'gpu1_run':str(a.gpu1_run),'stage':'waiting_for_data',
        'training':'not_started','evaluation':'not_started','campaign':str(campaign),'sustained_success':False}
-    processes=[];gpu0=None;gpu0_run=None;train=None;evaluation=None;train_dir=None;snapshot=None
+    processes=[];gpu0=AttachedWorker(a.gpu0_pid,a.gpu0_run) if a.gpu0_run else None
+    gpu0_run=a.gpu0_run;train=None;evaluation=None;train_dir=None;snapshot=None
+    if gpu0 is not None:status.update(gpu0_worker_pid=gpu0.pid,gpu0_run=str(gpu0_run),attached_existing_gpu0=True)
+    status['extra_run_dirs']=[str(p) for p in a.extra_run_dir]
     def save(**updates):
         status.update(updates,updated_at=now());path=campaign/'status.json'
         tmp=path.with_suffix('.json.tmp');tmp.write_text(json.dumps(status,indent=2));tmp.replace(path)
@@ -49,7 +68,8 @@ def main():
         while time.monotonic()<deadline:
             if gpu0 is None and (a.official_run/'process-result.json').exists():
                 env={**os.environ,'TASK':'tidy_table','DATA_ATTEMPTS':'6','DATA_GUARANTEE':'1',
-                    'DATA_MIN_SUCCESSES':'4','DATA_SEED':'200','DATA_TIMEOUT_SECONDS':'14400','CUDA_VISIBLE_DEVICES':'0'}
+                    'DATA_MIN_SUCCESSES':'4','DATA_SEED':'200','DATA_TIMEOUT_SECONDS':'14400','CUDA_VISIBLE_DEVICES':'0',
+                    'STATE_CPU_THREADS':'4','STATE_CPUSET':'0-15'}
                 gpu0=start(['bash',str(script/'run_long_task_data.sh')],campaign/'gpu0-generation.log',env)
                 save(gpu0_worker_pid=gpu0.pid)
             if gpu0 is not None and gpu0_run is None:
@@ -62,6 +82,7 @@ def main():
                 commands=[sys.executable,str(script/'collect_success_demos.py'),'--run-dir',str(a.official_run),
                           '--run-dir',str(a.gpu1_run)]
                 if gpu0_run: commands+=['--run-dir',str(gpu0_run)]
+                for extra in a.extra_run_dir:commands+=['--run-dir',str(extra)]
                 commands+=['--output',str(candidate),'--min-demos','4']
                 result=subprocess.run(commands,capture_output=True,text=True,timeout=120)
                 (campaign/'snapshot-latest.log').write_text(result.stdout+result.stderr)

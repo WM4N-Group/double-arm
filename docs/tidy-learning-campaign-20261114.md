@@ -69,3 +69,38 @@ Tidy Table 的原生观测每类物体只有一个实例，可以无歧义地将
 `export_policy_review.py` 校验训练完成标记、闭环模式、轨迹长度和视频时基，再导出轻量 MP4 / 缩略图 / JSON。`--require-success` 会拒绝未持续成功的回合。
 
 所有数据、权重、仿真与训练保留在服务器。本地仅保留源码、文档与最终小型检查视频。当前阶段是否成功应以实时 `status.json`、`training-result.json`、`evaluation/result.json` 为准，不以本文件作为完成声明。
+
+## 运行中性能修正（2026-11-15 00:10–00:21）
+
+双卡并发时，未限制线程的两个状态生成进程产生大量 PyTorch / BLAS CPU 线程，CPU 占用约 900–1200%，GPU 经常等待；原生单进程对照没有同等程度的退化。对未产出成功 episode 的旧 GPU0 worker 进行了保留日志的受控终止，随后给新 worker 设置：
+
+```text
+STATE_CPU_THREADS=4
+OMP_NUM_THREADS=4
+MKL_NUM_THREADS=4
+OPENBLAS_NUM_THREADS=4
+NUMEXPR_NUM_THREADS=4
+OMP_WAIT_POLICY=PASSIVE
+Torch intra-op=4, inter-op=1
+GPU0 CPU affinity=0-15
+GPU1 CPU affinity=88-103
+```
+
+没有修改物理参数、控制器、可见性约束或成功判据。限制线程后的 GPU0 已继续完成第一段导航并进入机械臂操作，GPU 利用率在规划 / 执行时再次出现明显负载；这不是“每个采样瞬间都 100%”的承诺。
+
+旧 GPU1 回合在放置阶段长时间没有新增视频数据，且仍无成功 HDF5，随后同样保留日志并替换为线程受限 worker。之前的未完成回合未混入训练。
+
+当前复用正在运行 GPU0 的控制器（不要重新启动第三个仿真）：
+
+```text
+/mnt/yuanyue/double-arm/runs/tidy-learning-campaign-20261115-001830
+```
+
+当前 worker：
+
+```text
+GPU0 /mnt/yuanyue/double-arm/runs/tidy_table-data-20261115-001031-Mt5KdW
+GPU1 /mnt/yuanyue/double-arm/runs/tidy_table-data-20261115-001829-BKrxK9
+```
+
+所有旧控制器报告已标记 superseded，最新入口始终为服务器 `runs/latest-learning-campaign.txt`。控制器支持附着到已有 GPU0 worker，避免重启控制器时重复占用同一张卡。

@@ -6,11 +6,20 @@ Teacher controls, visibility and success checks are unchanged. This does NOT
 train a policy. Images are not suitable for visual IL in this state-only dataset.
 """
 import functools
+import os
 import runpy
+import faulthandler
+import signal
 from state_policy_features import add_unique_task_poses, is_small
 
 
 def main():
+    import torch
+    threads=int(os.environ.get('STATE_CPU_THREADS','4'))
+    torch.set_num_threads(threads)
+    torch.set_num_interop_threads(1)
+    faulthandler.register(signal.SIGUSR1, all_threads=False)
+    print(f'STATE_WORKER_THREAD_LIMIT torch={threads} interop=1',flush=True)
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     import momagen.utils.file_utils as file_utils
     original = EnvOmniGibson.get_obs_IL

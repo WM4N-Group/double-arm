@@ -9,6 +9,11 @@ fi
 [[ ${ACCEPT_NVIDIA_EULA:-NO} == YES && ${ACCEPT_BEHAVIOR_DATASET_TERMS:-NO} == YES ]] || exit 3
 export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+export OMP_NUM_THREADS=${STATE_CPU_THREADS:-4} MKL_NUM_THREADS=${STATE_CPU_THREADS:-4}
+export OPENBLAS_NUM_THREADS=${STATE_CPU_THREADS:-4} NUMEXPR_NUM_THREADS=${STATE_CPU_THREADS:-4}
+export OMP_WAIT_POLICY=PASSIVE
+PIN=()
+if [[ -n ${STATE_CPUSET:-} ]]; then PIN=(taskset -c "$STATE_CPUSET"); fi
 TASK=${TASK:-dishes_away}
 case "$TASK" in dishes_away|bringing_water|tidy_table|pick_cup) ;; *) exit 2;; esac
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/${TASK}-data-$(date +%Y%m%d-%H%M%S)-XXXXXX")
@@ -36,7 +41,7 @@ c['obs']['camera_names']=['agentview']
 PY
 set +e
 timeout --signal=TERM --kill-after=90s "${DATA_TIMEOUT_SECONDS:-14400}" \
- python -u "$SCRIPT_DIR/generate_state_demos.py" --config "$RUN_DIR/config.json" \
+ "${PIN[@]}" python -u "$SCRIPT_DIR/generate_state_demos.py" --config "$RUN_DIR/config.json" \
  --num_demos "${DATA_ATTEMPTS:-8}" --bimanual --headless \
  --folder "$RUN_DIR/generated" --seed "${DATA_SEED:-10}" 2>&1 | tee "$RUN_DIR/generation.log"
 STATUS=${PIPESTATUS[0]}
