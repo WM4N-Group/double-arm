@@ -52,3 +52,10 @@
 - 本地 6 项轻量工作流测试通过。
 - 服务器上验证许可门槛：未设置接受标志时，安装脚本按预期以状态码 3 退出，不启动 Isaac／资产下载。
 - `scripts/isaac_smoke.py`、`scripts/run_momagen_smoke.sh` 是后续验收入口，已做语法检查，但尚未完成实际仿真验证。
+
+### Python 镜像限流与重试
+
+- 完整 Python 依赖的首次安装在 `termcolor` wheel 下载时收到 USTC 镜像 HTTP 429，安装未成功，不将其报告为已完成。
+- 首次日志保留为 `logs/momagen-python-install.attempt1.log`。
+- 已降低 uv 下载／构建／安装并发并设置重试、超时参数，重新启动后台安装；当前进度查看 `logs/momagen-python-install.log`。
+- 本地新增源码、配置和 Git 元数据合计不到 1 MB（不含用户原有 PDF）。

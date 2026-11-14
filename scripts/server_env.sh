@@ -16,6 +16,12 @@ export TORCH_HOME="$DOUBLE_ARM_ROOT/cache/torch"
 export TMPDIR="$DOUBLE_ARM_ROOT/cache/tmp"
 export UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-https://mirrors.ustc.edu.cn/pypi/web/simple}
 export UV_LINK_MODE=copy
+# Avoid overwhelming mirrors and the network filesystem with default concurrency.
+export UV_CONCURRENT_DOWNLOADS=${UV_CONCURRENT_DOWNLOADS:-4}
+export UV_CONCURRENT_BUILDS=${UV_CONCURRENT_BUILDS:-2}
+export UV_CONCURRENT_INSTALLS=${UV_CONCURRENT_INSTALLS:-4}
+export UV_HTTP_RETRIES=${UV_HTTP_RETRIES:-5}
+export UV_HTTP_TIMEOUT=${UV_HTTP_TIMEOUT:-120}
 export WANDB_MODE=${WANDB_MODE:-offline}
 # Headless mode; do NOT set an EULA acceptance flag here automatically.
 export OMNIGIBSON_HEADLESS=1
