@@ -1,0 +1,7 @@
+# Initial compatibility constraints for Python 3.10 / Isaac Sim 4.5.
+# Core Torch versions follow the pinned BEHAVIOR installer.
+# Full simulation compatibility is not yet validated; update after smoke testing.
+numpy==1.26.4
+torch==2.6.0
+torchvision==0.21.0
+setuptools==79.0.1

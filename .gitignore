@@ -1,0 +1,49 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.sock
+config/server.local.env
+
+# Large references and artifacts: keep these on the server, never in Git
+*.pdf
+*.hdf5
+*.h5
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.usd
+*.usda
+*.usdc
+*.zip
+*.tar
+*.tar.gz
+*.mp4
+*.npy
+*.npz
+data/
+datasets/
+assets/
+runs/
+outputs/
+logs/
+cache/
+.cache/
+envs/
+.venv/
+venv/
+third_party/
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Explicit license acceptance is machine-local, never public
+config/licenses.local.env
