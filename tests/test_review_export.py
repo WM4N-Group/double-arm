@@ -56,6 +56,13 @@ class ReviewExportTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 review.successful_video(path)
 
+    def test_grasp_enum_is_not_interpreted_as_generic_truthiness(self):
+        self.assertIs(review.grasp_flag(-1), False)
+        self.assertIsNone(review.grasp_flag(0))
+        self.assertIs(review.grasp_flag(1), True)
+        with self.assertRaises(KeyError):
+            review.grasp_flag(2)
+
     def test_ffprobe_metadata_is_checked(self):
         output = {'streams': [{'width': 1600, 'height': 576, 'codec_name': 'h264'}],
                   'format': {'duration': '12.0', 'size': '1000'}}

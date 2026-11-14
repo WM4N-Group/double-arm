@@ -136,7 +136,7 @@ python3 -m unittest discover -s tests -v
 
 ## 导出实际成功 demo 的检查视频
 
-`run_momagen_smoke.sh` 记录生成过程视频，单个画面已包含第三人称＋机器人视角；不会将源示范回放或空场景渲染当成任务成功。视频布局补丁在 `patches/robomimic/`，只改拼接顺序，不修改控制、相机标定或感知分辨率。
+`run_momagen_smoke.sh` 记录原项目的单一第三人称跟随视角。不能从 `camera_names` 推断实际视频布局：本版本的实时录像由原项目另一条录制路径写出，不使用 `Env.render()` 拼接。`patches/robomimic/` 中的布局补丁仅影响后者；它不修改控制、相机标定或感知分辨率。不会将源示范回放或空场景渲染当成任务成功。
 
 成功运行后会自动导出检查包到该次运行的 `review/`。若需要补导出（目标目录尚不存在），在服务器执行：
 
@@ -156,3 +156,22 @@ bash /home/yuanyue/double-arm/scripts/fetch_demo_review.sh \
 ```
 
 文件位于本地 `outputs/demo-review/`，不进入 Git。完整资产、HDF5 与运行日志继续保留在服务器。示范生成成功不代表训练策略已学会该任务。
+
+### 更清楚的全景＋腕部检查版
+
+本次已用成功生成的 456 个状态制作固定全景＋左腕回放，原始生成录像同时保留。该回放不重新执行规划或评估策略；成功统计来自原始实际生成。
+
+```bash
+# 服务器：加载成功生成的 HDF5，只重放状态、改变观察镜头。
+python /mnt/yuanyue/double-arm/code/scripts/render_generated_demo.py \
+  --dataset /mnt/yuanyue/double-arm/runs/实际目录/generated/实际实验名/demo.hdf5 \
+  --output /mnt/yuanyue/double-arm/runs/实际目录/generated-inspection.mp4
+
+# 验证回放清单、数据集 SHA-256 和步数对应关系后导出新检查包。
+python /mnt/yuanyue/double-arm/code/scripts/export_demo_review.py \
+  --run-dir /mnt/yuanyue/double-arm/runs/实际目录 \
+  --source-video /mnt/yuanyue/double-arm/runs/实际目录/generated-inspection.mp4 \
+  --output /mnt/yuanyue/double-arm/runs/实际目录/review-wide
+```
+
+运行前需 source 服务器环境并载入已确认的许可标志。已存在的输出不覆盖，需换新名称。检查版及真实结果详见 [本次 demo 记录](docs/demo-pick-cup-20261114.md)。
