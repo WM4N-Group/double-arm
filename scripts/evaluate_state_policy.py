@@ -12,7 +12,7 @@ import traceback
 import h5py
 import imageio.v2 as imageio
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import torch
 from state_policy_features import add_unique_task_poses, vectorize, as_numpy
 from train_state_policy import ChunkPolicy, JOINT, GRIP, joint_anchor
@@ -26,6 +26,7 @@ def main():
     p.add_argument('--demo',action='append',default=[])
     p.add_argument('--max-steps',type=int,default=4000)
     p.add_argument('--video-skip',type=int,default=2)
+    p.add_argument('--camera-layout',choices=['follow_ego','global_ego'],default='follow_ego')
     p.add_argument('--seed',type=int,default=123)
     args=p.parse_args()
     if args.output.exists(): raise FileExistsError(args.output)
@@ -37,12 +38,14 @@ def main():
     norm={k:np.asarray(v,dtype=np.float32) for k,v in ckpt['norm'].items()}
     demos=args.demo or ckpt['val_demos']
     manifest={'mode':'closed_loop_neural_policy','planner_enabled':False,'teacher_action_reads':0,
-              'checkpoint':str(args.checkpoint),'training_step':ckpt['step'],
+              'checkpoint':str(args.checkpoint),'training_step':ckpt['step'],'camera_layout':args.camera_layout,
               'dataset':str(args.dataset),'privileged_state':True,'episodes':[]}
     (args.output/'result.json').write_text(json.dumps(manifest,indent=2))
     import omnigibson as og
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     from pxr import Gf
+    try: font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',16)
+    except OSError: font=ImageFont.load_default()
     env=None; writer=None; failed=False
     try:
         meta=ckpt['env_args']; meta['env_kwargs']['init_curobo']=False
@@ -108,15 +111,20 @@ def main():
                 if step%args.video_skip==0:
                     og.sim.viewer_camera.set_position_orientation(position=camera_pos,orientation=camera_quat)
                     og.sim.render()
-                    global_img=as_numpy(og.sim.viewer_camera._get_obs()[0]['rgb'])[:,:,:3].astype('uint8')
+                    if args.camera_layout=='follow_ego':
+                        primary=env.env._external_sensors['external_sensor2'].get_obs()[0]['rgb']
+                        panel_width=480
+                    else:
+                        primary=og.sim.viewer_camera._get_obs()[0]['rgb']; panel_width=854
+                    global_img=as_numpy(primary)[:,:,:3].astype('uint8')
                     ego_keys=[k for k in raw_obs if ':eyes:Camera:0::rgb' in k]
-                    panels=[Image.fromarray(global_img).resize((854,480))]
+                    panels=[Image.fromarray(global_img).resize((panel_width,480))]
                     if ego_keys:
                         panels.append(Image.fromarray(as_numpy(raw_obs[ego_keys[0]])[:,:,:3].astype('uint8')).resize((480,480)))
                     frame=Image.new('RGB',(sum(i.width for i in panels),508),'#171717')
                     cursor=0
                     for im in panels: frame.paste(im,(cursor,28)); cursor+=im.width
-                    ImageDraw.Draw(frame).text((8,8),f'LEARNED STATE BC / {demo} / step {step} / BDDL success: {success}',fill='white')
+                    ImageDraw.Draw(frame).text((8,8),f'LEARNED BC | {demo} | step {step} | success: {success}',fill='white',font=font)
                     writer.append_data(np.asarray(frame))
                 if step%100==0:
                     print(json.dumps({'demo':demo,'step':step,'success':success,'grasped_ever':gripped,

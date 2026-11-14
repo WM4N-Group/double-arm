@@ -10,19 +10,22 @@ fi
 export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 TASK=${TASK:-dishes_away}
-[[ $TASK == dishes_away || $TASK == bringing_water ]] || exit 2
+case "$TASK" in dishes_away|bringing_water|tidy_table|pick_cup) ;; *) exit 2;; esac
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/${TASK}-data-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 printf 'Run directory: %s\n' "$RUN_DIR"
 echo "$RUN_DIR" > "$DOUBLE_ARM_ROOT/runs/latest-long-task-data.txt"
 bash "$SCRIPT_DIR/ensure_runtime_files.sh"
 cd "$MOMAGEN_ROOT"
-python momagen/scripts/generate_configs.py > "$RUN_DIR/config-generation.log" 2>&1
+if [[ ! -f "momagen/datasets/configs/demo_src_r1_${TASK}_task_D0.json" ]]; then
+ python momagen/scripts/generate_configs.py > "$RUN_DIR/config-generation.log" 2>&1
+fi
 python - "$MOMAGEN_ROOT" "$RUN_DIR" "$TASK" <<'PY'
 import json,pathlib,sys
 root,out,task=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),sys.argv[3]
 p=root/f'momagen/datasets/configs/demo_src_r1_{task}_task_D0.json'
 c=json.loads(p.read_text())
-c['experiment']['generation']['guarantee']=False
+import os
+c['experiment']['generation']['guarantee']=os.environ.get('DATA_GUARANTEE','0') == '1'
 c['experiment']['generation']['keep_failed']=False
 c['experiment']['max_num_failures']=30
 c['experiment']['render_video']=False
@@ -32,11 +35,12 @@ c['obs']['camera_names']=['agentview']
 (out/'config.json').write_text(json.dumps(c,indent=2))
 PY
 set +e
-timeout --signal=TERM --kill-after=90s "${DATA_TIMEOUT_SECONDS:-10800}" \
+timeout --signal=TERM --kill-after=90s "${DATA_TIMEOUT_SECONDS:-14400}" \
  python -u "$SCRIPT_DIR/generate_state_demos.py" --config "$RUN_DIR/config.json" \
  --num_demos "${DATA_ATTEMPTS:-8}" --bimanual --headless \
  --folder "$RUN_DIR/generated" --seed "${DATA_SEED:-10}" 2>&1 | tee "$RUN_DIR/generation.log"
 STATUS=${PIPESTATUS[0]}
 set -e
 printf '{"generator_exit_status":%d,"policy_training":"not_run"}\n' "$STATUS" > "$RUN_DIR/process-result.json"
+python "$SCRIPT_DIR/check_generation_result.py" --run-dir "$RUN_DIR" --exit-status "$STATUS" --required "${DATA_MIN_SUCCESSES:-3}"
 exit "$STATUS"

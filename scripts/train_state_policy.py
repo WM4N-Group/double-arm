@@ -55,8 +55,8 @@ def load_episodes(path):
         if not names:
             raise ValueError('No episodes')
         keys = feature_keys(f['data'][names[0]]['obs'])
-        if not any(k.startswith('task::plate.') for k in keys):
-            raise ValueError('Unique plate instance poses are required; ambiguous object::plate is insufficient')
+        if not any(k.startswith('task::') for k in keys):
+            raise ValueError('Unique task instance poses are required; ambiguous object aliases are insufficient')
         for name in names:
             g = f['data'][name]
             x = np.concatenate([g['obs'][k][()].reshape(len(g['actions']), -1) for k in keys], axis=1).astype('float32')
