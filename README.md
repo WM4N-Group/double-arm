@@ -175,3 +175,12 @@ python /mnt/yuanyue/double-arm/code/scripts/export_demo_review.py \
 ```
 
 运行前需 source 服务器环境并载入已确认的许可标志。已存在的输出不覆盖，需换新名称。检查版及真实结果详见 [本次 demo 记录](docs/demo-pick-cup-20261114.md)。
+
+## 长程数据与学习策略实验（2026-11-14）
+
+候选数据、R1 / R1Pro 动作兼容性、四阶段叠盘任务和训练 / 闭环评估协议：
+[docs/data-and-long-horizon-policy-20261114.md](docs/data-and-long-horizon-policy-20261114.md)。
+
+新增服务器入口为 `run_long_task_data.sh`（有限示范生成）和
+`run_state_policy_pipeline.sh`（生成结束后训练状态 BC，再关闭规划器做闭环评估）。
+**状态输入基线不等于视觉策略；训练完成不等于任务成功。**

@@ -11,6 +11,6 @@ printf -v ROOT_QUOTED '%q' "$REMOTE_ROOT"
 "$PROJECT_ROOT/scripts/remote.sh" bash -c \
     "mkdir -p $ROOT_QUOTED/tools; cat > $ROOT_QUOTED/tools/deploy_code_archive.py.new; mv $ROOT_QUOTED/tools/deploy_code_archive.py.new $ROOT_QUOTED/tools/deploy_code_archive.py" \
     < "$PROJECT_ROOT/scripts/deploy_code_archive.py"
-git ls-files --cached --others --exclude-standard -z |
+python3 "$PROJECT_ROOT/scripts/code_sync_manifest.py" |
     tar --null -T - -czf - |
     "$PROJECT_ROOT/scripts/remote.sh" python3 "$REMOTE_ROOT/tools/deploy_code_archive.py" --root "$REMOTE_ROOT"
