@@ -24,10 +24,32 @@ export MAX_JOBS=${MAX_JOBS:-4}
 export TORCH_CUDA_ARCH_LIST=8.9
 uv pip install --python "$VIRTUAL_ENV/bin/python" -c "$SCRIPT_DIR/../config/constraints.txt" \
     setuptools_scm wheel ninja yourdfpy warp-lang scikit-image
-# No build isolation: reuse the existing CUDA 12.4 / Torch 2.6 toolchain.
-uv pip install --python "$VIRTUAL_ENV/bin/python" --no-build-isolation \
-    -c "$SCRIPT_DIR/../config/constraints.txt" -e "$REPO" \
-    "$OMPL_WHEEL"
+# Avoid rebuilding CUDA extensions on every pipeline restart. Reuse only a
+# clean, pinned checkout already installed in this exact Python environment.
+if python - "$REPO" <<'PY_CACHE'
+import importlib.metadata as md
+import json
+from pathlib import Path
+import subprocess, sys
+repo = Path(sys.argv[1]).resolve()
+try:
+    dist = md.distribution('nvidia-curobo')
+    direct = json.loads(dist.read_text('direct_url.json'))
+    assert direct['url'] == repo.as_uri()
+    assert md.version('ompl') == '1.6.0'
+    assert md.version('torch') == '2.6.0'
+    assert not subprocess.check_output(['git', '-C', str(repo), 'status', '--porcelain', '--untracked-files=no']).strip()
+    assert len(list((repo / 'src/curobo/curobolib').glob('*.so'))) >= 5
+except Exception:
+    raise SystemExit(1)
+PY_CACHE
+then
+    echo 'Reusing installed CUDA extensions from clean pinned source.'
+else
+    # No build isolation: reuse the existing CUDA 12.4 / Torch 2.6 toolchain.
+    uv pip install --python "$VIRTUAL_ENV/bin/python" --no-build-isolation \
+        -c "$SCRIPT_DIR/../config/constraints.txt" -e "$REPO" "$OMPL_WHEEL"
+fi
 python - <<'PY'
 from curobo.wrap.reacher.motion_gen import MotionGen
 from ompl import base, geometric

@@ -42,3 +42,5 @@ checkout_revision https://github.com/StanfordVL/BEHAVIOR-1K.git "$BEHAVIOR_REV" 
 checkout_revision https://github.com/ChengshuLi/robomimic.git "$ROBOMIMIC_REV" "$MOMAGEN_ROOT/robomimic"
 
 checkout_revision "$CUROBO_URL" "$CUROBO_REV" "$DOUBLE_ARM_ROOT/src/curobo"
+
+bash "$SCRIPT_DIR/ensure_runtime_files.sh"

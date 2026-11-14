@@ -73,14 +73,42 @@ def unpack_bundle(entry, path, data_root):
         return
     if target.exists():
         raise FileExistsError(f'Refusing to overwrite an unverified asset directory: {target}')
-    staging = Path(tempfile.mkdtemp(prefix=f'.extract-{entry["target"]}-', dir=data_root))
+    resume = os.environ.get('ASSET_RESUME_STAGING') if entry['target'] == 'behavior-1k-assets' else None
+    if resume:
+        staging = Path(resume).resolve()
+        if staging.parent != data_root.resolve() or not staging.name.startswith(f'.extract-{entry["target"]}-') or not staging.is_dir():
+            raise ValueError('Invalid explicitly selected extraction staging directory')
+    else:
+        staging = Path(tempfile.mkdtemp(prefix=f'.extract-{entry["target"]}-', dir=data_root))
     print(f'UNPACK {path.name} -> {target}', flush=True)
     with zipfile.ZipFile(path) as archive:
         for member in archive.infolist():
             name = PurePosixPath(member.filename)
             if name.is_absolute() or '..' in name.parts:
                 raise ValueError(f'Unsafe ZIP member: {member.filename}')
-        archive.extractall(staging)
+        members = archive.infolist()
+
+        def extract(member):
+            dest = staging / member.filename
+            if member.is_dir():
+                dest.mkdir(parents=True, exist_ok=True)
+                return 'directory'
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # Resume only an explicitly selected staging directory from this
+            # already SHA-verified archive. A partially written file has a
+            # smaller size and will be replaced by a fresh, CRC-checked extract.
+            if resume and dest.is_file() and dest.stat().st_size == member.file_size:
+                return 'resumed'
+            archive.extract(member, staging)
+            return 'extracted'
+
+        counts = {'directory': 0, 'resumed': 0, 'extracted': 0}
+        workers = max(1, min(int(os.environ.get('ASSET_EXTRACT_WORKERS', '8')), 16))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for index, result in enumerate(pool.map(extract, members), 1):
+                counts[result] += 1
+                if index % 5000 == 0 or index == len(members):
+                    print(f'EXTRACT_PROGRESS {entry["target"]} {index}/{len(members)} {counts}', flush=True)
     staging.rename(target)
     marker.write_text(json.dumps(expected, indent=2))
     print(f'INSTALLED {target}', flush=True)

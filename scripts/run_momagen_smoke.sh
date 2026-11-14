@@ -11,6 +11,8 @@ export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/pick_cup-smoke-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 printf 'Run directory: %s\n' "$RUN_DIR"
+bash "$SCRIPT_DIR/ensure_runtime_files.sh"
+bash "$SCRIPT_DIR/apply_upstream_patches.sh"
 cd "$MOMAGEN_ROOT"
 python momagen/scripts/generate_configs.py > "$RUN_DIR/config-generation.log" 2>&1
 for scene in Rs_int house_single_floor; do
@@ -38,7 +40,11 @@ config = json.loads(source.read_text())
 config['experiment']['generation']['guarantee'] = False
 config['experiment']['generation']['num_trials'] = 1
 config['experiment']['max_num_failures'] = 1
-config['experiment']['render_video'] = True
+# Live attempt videos are always recorded by the upstream generator. Avoid a
+# second, expensive replay; keep one camera name because render() already joins
+# the third-person and ego views.
+config['experiment']['render_video'] = False
+config['obs']['camera_names'] = ['agentview']
 config['experiment']['num_demo_to_render'] = 1
 config['experiment']['num_fail_demo_to_render'] = 1
 (out / 'config.json').write_text(json.dumps(config, indent=2))
@@ -74,3 +80,16 @@ print(json.dumps(report, indent=2))
 if not successes or not hdf5:
     sys.exit('No confirmed successful demonstration; review logs, do not mark the task as passed.')
 PY
+# A passed generation is not yet a deliverable video: validate and export it too.
+python -u "$SCRIPT_DIR/export_demo_review.py" --run-dir "$RUN_DIR" > "$RUN_DIR/review-export.log" 2>&1
+python - "$RUN_DIR" <<'PY_REVIEW'
+import json
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+report = json.loads((root / 'smoke-result.json').read_text())
+report['review_dir'] = str(root / 'review')
+report['review_video'] = str(root / 'review/demo.mp4')
+(root / 'smoke-result.json').write_text(json.dumps(report, indent=2))
+print('REVIEW_VIDEO_READY', root / 'review/demo.mp4', flush=True)
+PY_REVIEW

@@ -1,0 +1,11 @@
+diff --git a/robomimic/envs/env_omnigibson.py b/robomimic/envs/env_omnigibson.py
+--- a/robomimic/envs/env_omnigibson.py
++++ b/robomimic/envs/env_omnigibson.py
+@@ -922,4 +922,6 @@
+             # eef_right_img = obs[f"{robot_name}::{robot_name}:right_eef_link:Camera:0::rgb"]
+-            concatenated_img = hori_concatenate_image([ego_img, viewer_img])
++            # Video-only: retain the native third-person resolution. Do not change
++            # the eye sensor or its calibration used by planning and perception.
++            concatenated_img = hori_concatenate_image([viewer_img, ego_img])
+             return concatenated_img
+             # video_writer.append_data(concatenated_img)

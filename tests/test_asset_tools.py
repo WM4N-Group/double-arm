@@ -78,6 +78,27 @@ class AssetToolTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 assets.unpack_bundle(entry, root / 'unused.zip', root)
 
+    def test_resumes_explicit_partial_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / 'fixture.zip'
+            with zipfile.ZipFile(archive, 'w') as stream:
+                stream.writestr('metadata/a.txt', 'already complete')
+                stream.writestr('metadata/b.txt', 'full replacement')
+            staging = root / '.extract-behavior-1k-assets-fixture'
+            (staging / 'metadata').mkdir(parents=True)
+            first = staging / 'metadata/a.txt'
+            first.write_text('already complete')
+            original_mtime = first.stat().st_mtime_ns
+            (staging / 'metadata/b.txt').write_text('part')
+            entry = {'target': 'behavior-1k-assets', 'filename': 'fixture.zip', 'sha256': 'd' * 64}
+            with patch.dict(assets.os.environ, {'ASSET_RESUME_STAGING': str(staging), 'ASSET_EXTRACT_WORKERS': '4'}):
+                assets.unpack_bundle(entry, archive, root)
+            final = root / 'behavior-1k-assets'
+            self.assertEqual((final / 'metadata/a.txt').stat().st_mtime_ns, original_mtime)
+            self.assertEqual((final / 'metadata/b.txt').read_text(), 'full replacement')
+            self.assertFalse(staging.exists())
+
     def test_parallel_downloader_passes_expected_checksum(self):
         content = b'synthetic tiny download fixture'
         digest = hashlib.sha256(content).hexdigest()

@@ -133,3 +133,26 @@ python3 -m unittest discover -s tests -v
 ```
 
 这里只检查脚本语法、SSH 参数转义、固定版本和忽略规则，不启动仿真，也不在本机训练。
+
+## 导出实际成功 demo 的检查视频
+
+`run_momagen_smoke.sh` 记录生成过程视频，单个画面已包含第三人称＋机器人视角；不会将源示范回放或空场景渲染当成任务成功。视频布局补丁在 `patches/robomimic/`，只改拼接顺序，不修改控制、相机标定或感知分辨率。
+
+成功运行后会自动导出检查包到该次运行的 `review/`。若需要补导出（目标目录尚不存在），在服务器执行：
+
+```bash
+source /mnt/yuanyue/double-arm/code/scripts/server_env.sh
+python /mnt/yuanyue/double-arm/code/scripts/export_demo_review.py \
+  --run-dir /mnt/yuanyue/double-arm/runs/pick_cup-smoke-实际运行目录
+```
+
+脚本要求成功统计、非空生成动作数据、对应的尝试视频均存在；检查视频可完整解码后才生成 `review/demo.mp4`、六帧缩略图和 `review.json`。检查包不包含资产、密钥、数据集或模型。
+
+在本地仅回传上述三个小文件：
+
+```bash
+bash /home/yuanyue/double-arm/scripts/fetch_demo_review.sh \
+  /mnt/yuanyue/double-arm/runs/pick_cup-smoke-实际运行目录/review
+```
+
+文件位于本地 `outputs/demo-review/`，不进入 Git。完整资产、HDF5 与运行日志继续保留在服务器。示范生成成功不代表训练策略已学会该任务。
