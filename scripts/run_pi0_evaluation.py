@@ -33,9 +33,14 @@ def main():
     p.add_argument('--hours',type=float,default=2)
     p.add_argument('--inference-platform',choices=['cpu','gpu'],default='cpu')
     p.add_argument('--execute-steps',type=int,default=None)
+    p.add_argument('--denoising-steps',type=int,default=10)
+    p.add_argument('--sampling-noise',choices=['gaussian','zero'],default='gaussian')
+    p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
+    p.add_argument('--grasping-mode',choices=['physical','configured'],default='physical')
     args=p.parse_args();root=args.root;out=args.output
     execute_steps=args.execute_steps if args.execute_steps is not None else (10 if args.inference_platform=='cpu' else 5)
     if not 1<=execute_steps<=50:raise ValueError('Invalid receding horizon')
+    if not 1<=args.denoising_steps<=100:raise ValueError('Invalid denoising step count')
     # The lightweight controller may run under system Python (no numerical
     # dependencies). Re-exec this CPU orchestrator in the isolated openpi env;
     # never install h5py/numpy into the simulator or workstation as a workaround.
@@ -53,7 +58,9 @@ def main():
     state={'stage':'preparing_pi0_native_evaluation','checkpoint':str(args.checkpoint),'gpu_uuid':gpu,
            'max_gpu_count':1,'task_success':False,'started_at':datetime.now(timezone.utc).isoformat(),
            'physical_parameters_calibrated_to_real_robot':False,'inference_platform':args.inference_platform,
-           'execute_steps':execute_steps,'real_time_control_claim':False}
+           'execute_steps':execute_steps,'real_time_control_claim':False,
+           'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation,
+           'grasping_condition':args.grasping_mode}
     def save(**kwargs):
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat());tmp=out/'status.tmp'
         tmp.write_text(json.dumps(state,indent=2));tmp.replace(out/'status.json')
@@ -67,6 +74,11 @@ def main():
     if not lows:raise ValueError('No training-only native control bounds available')
     bounds={'min':np.stack(lows).min(0).tolist(),'max':np.stack(highs).max(0).tolist(),
             'source':'Only the training split; no evaluation teacher actions read'}
+    if args.action_representation=='absolute_base':
+        targets=np.load(root/'data/pi0/absolute-base-v2/train-actions.npy',mmap_mode='r')
+        bounds.update(native_base_min=bounds['min'][:3],native_base_max=bounds['max'][:3])
+        bounds['min'][:3]=targets[:,:3].min(0).tolist();bounds['max'][:3]=targets[:,:3].max(0).tolist()
+        bounds['representation']='absolute world-base labels; separate training-native step bounds'
     (out/'action-bounds.json').write_text(json.dumps(bounds,indent=2))
     token=out/'rpc-token.local';descriptor=os.open(token,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(descriptor,'w') as handle:handle.write(secrets.token_hex(32)+'\n')
@@ -86,7 +98,9 @@ def main():
         if any(line.split(',')[0].strip()==gpu for line in existing.splitlines()):raise RuntimeError('Allocated GPU occupied; refusing to steal it')
         server=launch([str(root/'envs/openpi/bin/python'),'-u',str(script/'serve_pi0_r1.py'),
             '--checkpoint',str(args.checkpoint),'--token-file',str(token),'--ready-file',str(out/'inference-ready.json'),
-            '--hours',str(args.hours),'--inference-platform',args.inference_platform],out/'inference-server.log',
+            '--hours',str(args.hours),'--inference-platform',args.inference_platform,
+            '--denoising-steps',str(args.denoising_steps),'--sampling-noise',args.sampling_noise,
+            '--action-representation',args.action_representation],out/'inference-server.log',
             {'XLA_PYTHON_CLIENT_PREALLOCATE':'false','XLA_PYTHON_CLIENT_MEM_FRACTION':'0.32',
              'CUDA_VISIBLE_DEVICES':gpu if args.inference_platform=='gpu' else '',
              'JAX_PLATFORMS':'cuda' if args.inference_platform=='gpu' else 'cpu'})
@@ -117,8 +131,8 @@ def main():
         simulation=launch(['bash','-c','set -euo pipefail; source "$1"; shift; exec "$@"',
             'pi0-simulator',str(script/'server_env.sh'),str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
             '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
-            '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode','physical',
-            '--execute-steps',str(execute_steps)],out/'physical-rollout.log')
+            '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
+            '--execute-steps',str(execute_steps),'--action-representation',args.action_representation],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')
@@ -126,7 +140,9 @@ def main():
             time.sleep(15)
         result=read(out/'physical-rollout/result.json',{})
         eligible=simulation.returncode==0 and physical_task_passed(result)
-        save(stage='pi0_physical_closed_loop_success_review_required' if eligible else 'pi0_physical_closed_loop_failed',
+        author_diagnostic=args.grasping_mode=='configured'
+        save(stage='pi0_author_config_diagnostic_completed' if author_diagnostic else ('pi0_physical_closed_loop_success_review_required' if eligible else 'pi0_physical_closed_loop_failed'),
+             author_config_task_success=bool(author_diagnostic and result.get('task_success') is True),
              task_success=bool(eligible),result=result,video=str(out/'physical-rollout/demo_0.mp4'))
         # Review export has its own status: artifact errors must not change the
         # actual physical result or quietly turn failed attempts into successes.
@@ -144,7 +160,7 @@ def main():
                 export_code=124
             save(review_export_exit_status=export_code,
                  review_directory=str(out/'review') if export_code==0 and (out/'review/review.json').is_file() else None)
-        return 0 if eligible else 7
+        return 0 if eligible or (author_diagnostic and simulation.returncode==0) else 7
     except Exception as error:
         save(stage='pi0_deployment_or_evaluation_failed',error=repr(error),task_success=False)
         raise

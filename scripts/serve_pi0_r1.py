@@ -19,7 +19,11 @@ def main():
     p.add_argument('--port',type=int,default=18731)
     p.add_argument('--hours',type=float,default=2)
     p.add_argument('--inference-platform',choices=['gpu','cpu'],default='gpu')
+    p.add_argument('--denoising-steps',type=int,default=10)
+    p.add_argument('--sampling-noise',choices=['gaussian','zero'],default='gaussian')
+    p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
     args=p.parse_args();root=Path(os.environ.get('DOUBLE_ARM_ROOT','/mnt/yuanyue/double-arm'))
+    if not 1<=args.denoising_steps<=100:raise ValueError('Invalid denoising step count')
     gpu=resolve_gpu(root,os.environ.get('CUDA_VISIBLE_DEVICES'))
     if not str(args.checkpoint).startswith(str(root/'runs')+'/'):raise ValueError('A project fine-tuned checkpoint is required, not the unfine-tuned base')
     if not (args.checkpoint/'params').is_dir():raise ValueError('Missing openpi checkpoint params')
@@ -30,7 +34,7 @@ def main():
     os.environ.setdefault('OPENPI_DATA_HOME',str(root/'cache/openpi'))
     from pi0_r1_config import register_config
     from openpi.policies.policy_config import create_trained_policy
-    config=register_config();policy=create_trained_policy(config,args.checkpoint)
+    config=register_config(action_representation=args.action_representation);policy=create_trained_policy(config,args.checkpoint,sample_kwargs={'num_steps':args.denoising_steps})
     import jax
     actual_platform=jax.default_backend()
     if (actual_platform=='cpu')!=(args.inference_platform=='cpu'):
@@ -38,7 +42,7 @@ def main():
     ready={'model':'pi0','policy_framework':'official_openpi','checkpoint':str(args.checkpoint),'gpu_uuid':gpu if args.inference_platform=='gpu' else None,
            'allocation_gpu_uuid':gpu,'inference_platform':args.inference_platform,'actual_jax_platform':actual_platform,
            'native_action_dim':21,'action_horizon':50,'privileged_state':False,'teacher_enabled':False,
-           'port':args.port,'inference_warmed_up':False}
+           'port':args.port,'inference_warmed_up':False,'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation}
     args.ready_file.write_text(json.dumps(ready,indent=2));deadline=time.monotonic()+args.hours*3600
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -51,12 +55,14 @@ def main():
             if length<1 or length>3*1024*1024:self.send_error(413);return
             try:
                 observation=decode_observation(json.loads(self.rfile.read(length)))
-                start=time.monotonic();prediction=policy.infer(observation)
+                import numpy as np
+                noise=np.zeros((50,config.model.action_dim),np.float32) if args.sampling_noise=='zero' else None
+                start=time.monotonic();prediction=policy.infer(observation,noise=noise)
                 from momagen_pi0_schema import unpad_pi0_actions
                 actions=unpad_pi0_actions(prediction['actions'])
                 if actions.shape!=(50,21):raise ValueError('Unexpected pi0 action horizon')
                 result={'actions':actions.tolist(),'model':'pi0','teacher_enabled':False,'inference_seconds':time.monotonic()-start,
-                        'inference_platform':args.inference_platform}
+                        'inference_platform':args.inference_platform,'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation}
                 ready['inference_warmed_up']=True;args.ready_file.write_text(json.dumps(ready,indent=2))
                 self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps(result).encode())
             except Exception as error:

@@ -20,6 +20,7 @@ from grasping_validation import activate_physical_after_reset
 from momagen_pi0_schema import camera_keys,rgb_image,PROMPT
 from object_pose_audit import ObjectPoseAudit
 from pi0_rpc import infer_local
+from pi0_base_targets import absolute_base_to_native
 from state_policy_features import as_numpy
 
 
@@ -35,12 +36,16 @@ def main():
     p.add_argument('--max-steps',type=int,default=3000)
     p.add_argument('--execute-steps',type=int,default=5)
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='physical')
+    p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
     args=p.parse_args()
     if args.output.exists():raise FileExistsError(args.output)
     if not 1<=args.execute_steps<=50:raise ValueError('Invalid receding horizon')
     token=args.token_file.read_text().strip();bounds=json.loads(args.action_bounds.read_text())
     lower=np.asarray(bounds['min'],np.float32);upper=np.asarray(bounds['max'],np.float32)
     if lower.shape!=(21,) or upper.shape!=(21,) or np.any(lower>upper):raise ValueError('Invalid dataset native action limits')
+    if args.action_representation=='absolute_base':
+        base_lower=np.asarray(bounds['native_base_min'],np.float32);base_upper=np.asarray(bounds['native_base_max'],np.float32)
+        if base_lower.shape!=(3,) or base_upper.shape!=(3,):raise ValueError('Missing native base step limits')
     root=Path('/mnt/yuanyue/double-arm');flags={}
     for line in (root/'code/config/licenses.local.env').read_text().splitlines():
         if '=' in line and not line.lstrip().startswith('#'):
@@ -58,7 +63,8 @@ def main():
             'execute_steps':args.execute_steps,'predicted_horizon':50,'grasping_mode':args.grasping_mode,
             'assisted_constraint_seen':False,'object_pose_write_count':0,'upstream_finger_friction':4.0,
             'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[],
-            'inference_platform':None,'real_time_control_claim':False}
+            'inference_platform':None,'real_time_control_claim':False,'action_representation':args.action_representation,
+            'low_level_robot_odometry_used':args.action_representation=='absolute_base'}
     def save():
         tmp=args.output/'result.tmp';tmp.write_text(json.dumps(result,indent=2));tmp.replace(args.output/'result.json')
     save();writer=None;audit=None;failed=False;started=time.monotonic()
@@ -81,7 +87,7 @@ def main():
         writer=imageio.get_writer(str(args.output/(args.demo+'.mp4')),fps=15,codec='libx264',quality=7,macro_block_size=2)
         try:font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',15)
         except OSError:font=ImageFont.load_default()
-        queued=deque();states=[];actions=[];path=[];grasp=[False,False];stable=0;rpc=[];clipped=0
+        queued=deque();states=[];actions=[];targets=[];base_clipped=0;path=[];grasp=[False,False];stable=0;rpc=[];clipped=0
         for step in range(args.max_steps):
             audit.step=step
             if not queued:
@@ -91,16 +97,28 @@ def main():
                 platform=info.get('inference_platform')
                 if platform not in ('cpu','gpu'):raise ValueError('Inference service did not report its platform')
                 result['inference_platform']=platform
+                result['denoising_steps']=info.get('denoising_steps')
+                result['sampling_noise']=info.get('sampling_noise')
+                if info.get('action_representation','native')!=args.action_representation:raise ValueError('Wrong action representation service')
                 queued.extend(prediction[:args.execute_steps]);rpc.append({'step':step,'inference_seconds':info['inference_seconds'],'inference_platform':platform})
-            proposed=np.asarray(queued.popleft(),np.float32);action=np.clip(proposed,lower,upper)
-            clipped+=int(np.any(action!=proposed))
+            proposed=np.asarray(queued.popleft(),np.float32);target=np.clip(proposed,lower,upper)
+            clipped+=int(np.any(target!=proposed));targets.append(target.copy())
+            if args.action_representation=='absolute_base':
+                position,quaternion=env.robot.get_position_orientation()
+                # Current ROBOT odometry is used only by this ordinary motor
+                # target conversion, not as a VLA input or navigation planner.
+                pose=np.concatenate([as_numpy(position),as_numpy(quaternion)])
+                action=absolute_base_to_native(target,pose)
+                capped=np.clip(action[:3],base_lower,base_upper)
+                base_clipped+=int(np.any(capped!=action[:3]));action[:3]=capped
+            else:action=target
             states.append(as_numpy(obs['prop_state']).copy());actions.append(action.copy());path.append(as_numpy(env.robot.get_position_orientation()[0]).copy())
             raw,reward,done,truncated,info=env.env.step(torch.tensor(action))
             obs,_=env.get_obs_IL(di=(raw,{}))
             assisted=any(value is not None for value in env.robot._ag_obj_constraints.values())
             result['assisted_constraint_seen']|=assisted
             if args.grasping_mode=='physical' and assisted:raise ValueError('Assisted attachment appeared in physical eval')
-            if audit.events:raise ValueError('Task-object explicit pose write during closed-loop eval')
+            if args.grasping_mode=='physical' and audit.events:raise ValueError('Task-object explicit pose write during closed-loop eval')
             for i,name in enumerate(('grasp_left','grasp_right')):grasp[i]|=int(as_numpy(obs[name]).reshape(-1)[0])==1
             cup_grasped|=int(env.robot.is_grasping(arm='left',candidate_obj=cup))==1
             max_cup_lift=max(max_cup_lift,float(as_numpy(cup.get_position_orientation()[0])[2])-initial_cup_z)
@@ -120,9 +138,9 @@ def main():
             'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
             'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),
             'cup_specific_grasp_seen':cup_grasped,'max_cup_lift_m':max_cup_lift}
-        result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,wall_clock_seconds=time.monotonic()-started)
+        result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,clipped_native_base_steps=base_clipped,wall_clock_seconds=time.monotonic()-started)
         result['task_success']=stable>=30 and any(grasp) and cup_grasped and max_cup_lift>.03 and episode['base_path_length_m']>.5
-        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions)
+        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions,model_action_targets=np.stack(targets))
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     except BaseException as error:
         failed=True;result.update(error=repr(error),task_success=False)

@@ -7,6 +7,22 @@ import runpy
 import sys
 
 
+def run_official_training(source,config_name,remaining,root):
+    # The pinned upstream main explicitly selects ~/.cache/jax. Redirect only
+    # that filesystem setting for this process; preserve the upstream source,
+    # training loop, optimizer and model, and do not move shared user caches.
+    import jax
+    original_update=jax.config.update
+    def project_update(option,value):
+        if option=='jax_compilation_cache_dir':value=str(root/'cache/jax')
+        return original_update(option,value)
+    jax.config.update=project_update
+    try:
+        sys.argv=[str(source/'scripts/train.py'),config_name,*remaining]
+        runpy.run_path(str(source/'scripts/train.py'),run_name='__main__')
+    finally:jax.config.update=original_update
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode',choices=['config','norms','train'])
@@ -23,8 +39,7 @@ def main():
         limit=os.environ.get('PI0_NORM_MAX_FRAMES')
         compute_norm_stats.main(config.name,max_frames=int(limit) if limit else None)
     else:
-        sys.argv=[str(source/'scripts/train.py'),config.name,*remaining]
-        runpy.run_path(str(source/'scripts/train.py'),run_name='__main__')
+        run_official_training(source,config.name,remaining,root)
 
 
 if __name__=='__main__':main()

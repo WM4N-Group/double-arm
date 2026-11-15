@@ -40,6 +40,7 @@ def main():
     passed=physical_task_passed(result) and assessed.get('task_success') is True
     if args.require_success and not passed:raise ValueError('Physical task acceptance did not pass')
     label='PI0 PHYSICAL SUCCESS - MANUAL REVIEW PENDING' if passed else 'PI0 FAILED ATTEMPT - NOT A SUCCESS DEMO'
+    if result.get('grasping_mode')!='physical':label='PI0 ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
     rollout=args.evaluation/'physical-rollout'
     import numpy as np
     from PIL import Image,ImageDraw,ImageFont
@@ -71,6 +72,7 @@ def main():
     for index,image in enumerate(frames):sheet.paste(image,((index%3)*width,(index//3)*height))
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
     review={'label':label,'algorithm':result['algorithm'],'task':'r1_tidy_table_D0','physical_task_acceptance':passed,
+        'author_assisted_task_success':result.get('grasping_mode')!='physical' and result.get('task_success') is True,
         'manual_video_review_required':True,'inference_platform':result.get('inference_platform'),
         'real_time_control_claim':False,'checkpoint_fingerprint':fingerprint['sha256'],'checkpoint':str(checkpoint),
         'formal_training_completed':True,'train_demonstrations':training.get('train_demonstrations'),

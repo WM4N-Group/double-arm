@@ -54,6 +54,53 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
 
+    def test_assisted_diagnostics_cannot_be_labelled_as_physical_success(self):
+        source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
+        self.assertIn("choices=['physical','configured'],default='physical'",source)
+        self.assertIn('physical_task_passed(result)',source)
+        self.assertIn('author_config_task_success=',source)
+        export=(ROOT/'scripts/export_pi0_review.py').read_text()
+        self.assertIn('PI0 ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS',export)
+        pipeline=(ROOT/'scripts/run_pi0_pipeline.py').read_text()
+        self.assertIn("wait(a.gpu_prerequisite_pid,'waiting_for_allocated_gpu_prerequisite')",pipeline)
+
+    def test_training_redirects_only_its_compilation_cache(self):
+        source=(ROOT/'scripts/run_pi0_entrypoint.py').read_text()
+        self.assertIn("if option=='jax_compilation_cache_dir':value=str(root/'cache/jax')",source)
+        self.assertIn('finally:jax.config.update=original_update',source)
+        self.assertIn("runpy.run_path(str(source/'scripts/train.py'),run_name='__main__')",source)
+
+    def test_absolute_base_variant_is_label_only_and_keeps_visual_proprio_inputs(self):
+        source=(ROOT/'scripts/pi0_r1_config.py').read_text()
+        self.assertIn('use_quantile_norm=absolute',source)
+        self.assertIn('pi0_r1_tidy_table_absolute_base_lora32',source)
+        tree=ast.parse(source)
+        cls=next(node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=='R1AbsoluteBaseInputs')
+        self.assertIn("if 'actions' in data:",ast.get_source_segment(source,cls))
+        self.assertIn('result=make_pi0_inputs(data)',ast.get_source_segment(source,cls))
+        evaluation=(ROOT/'scripts/evaluate_pi0_r1.py').read_text()
+        self.assertIn('action=absolute_base_to_native(target,pose)',evaluation)
+        self.assertIn("info.get('action_representation','native')!=args.action_representation",evaluation)
+        self.assertIn('np.clip(action[:3],base_lower,base_upper)',evaluation)
+        pipeline=(ROOT/'scripts/run_pi0_pipeline.py').read_text()
+        self.assertIn('--reuse-prepared-native-dataset',pipeline)
+        self.assertIn("'PI0_ACTION_REPRESENTATION':a.action_representation",pipeline)
+
+    def test_sampling_diagnostics_never_control_the_simulator_or_tune_on_holdout(self):
+        source=(ROOT/'scripts/benchmark_pi0_sampling.py').read_text()
+        self.assertIn("provenance.get('split')!='train'",source)
+        self.assertNotIn('--holdout',source)
+        self.assertIn('policy.infer(inputs,noise=noise)',source)
+        self.assertNotIn('env.step(',source)
+        diagnostic=(ROOT/'scripts/diagnose_pi0_actions.py').read_text()
+        self.assertIn("norm['norm_stats']['actions']['std']",diagnostic)
+        self.assertIn("'teacher_actions_sent_to_model':False",diagnostic)
+        self.assertIn("'simulator_control_calls':0",diagnostic)
+        service=(ROOT/'scripts/serve_pi0_r1.py').read_text()
+        self.assertIn("'--denoising-steps',type=int,default=10",service)
+        self.assertIn("choices=['gaussian','zero'],default='gaussian'",service)
+        self.assertIn("policy.infer(observation,noise=noise)",service)
+
     def test_evaluation_exports_separately_labelled_review(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn('physical_task_passed(result)',source)
@@ -74,7 +121,7 @@ class Pi0SourceContract(unittest.TestCase):
         service=(ROOT/'scripts/serve_pi0_r1.py').read_text()
         self.assertIn("gpu if args.inference_platform=='gpu' else ''",service)
         self.assertIn("'cuda' if args.inference_platform=='gpu' else 'cpu'",service)
-        self.assertIn('create_trained_policy(config,args.checkpoint)',service)
+        self.assertIn('create_trained_policy(config,args.checkpoint,sample_kwargs=',service)
         evaluation=(ROOT/'scripts/evaluate_pi0_r1.py').read_text()
         self.assertIn("'real_time_control_claim':False",evaluation)
         self.assertIn("platform=info.get('inference_platform')",evaluation)
@@ -127,6 +174,57 @@ class Pi0SourceContract(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('numpy') and importlib.util.find_spec('h5py'),
                      'Numerical image/schema tests run on the server, no local installation')
 class Pi0Numerics(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec('openpi'),'Official config test runs in isolated openpi environment')
+    def test_absolute_quantile_override_survives_official_data_factory(self):
+        from unittest.mock import patch
+        from openpi import transforms
+        from openpi.training import config as official
+        from pi0_r1_config import register_config
+        with patch.object(official.DataConfigFactory,'_load_norm_stats',return_value=None), \
+             patch.object(official,'ModelTransformFactory',return_value=lambda model:transforms.Group()):
+            absolute=register_config(action_representation='absolute_base')
+            self.assertTrue(absolute.data.create(absolute.assets_dirs,absolute.model).use_quantile_norm)
+            native=register_config(action_representation='native')
+            self.assertFalse(native.data.create(native.assets_dirs,native.model).use_quantile_norm)
+
+    def test_absolute_base_roundtrip_and_nonintegrating_target_hold(self):
+        import numpy as np
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from pi0_base_targets import native_to_absolute_base,absolute_base_to_native
+        yaw=np.array([-.7,1.2,3.13,-3.13]);poses=np.zeros((4,7));poses[:,:2]=[[5,1.5],[2,3],[1,1],[1,1]]
+        poses[:,5]=np.sin(yaw/2);poses[:,6]=np.cos(yaw/2)
+        native=np.zeros((4,21));native[:,:3]=[[.003,-.002,.001],[.01,.005,-.001],[0,0,.03],[0,0,.02]]
+        native[:,3:]=np.random.default_rng(1).normal(size=(4,18))
+        targets=native_to_absolute_base(native,poses)
+        np.testing.assert_allclose(absolute_base_to_native(targets,poses),native,atol=1e-6)
+        pose=poses[0].copy();target=targets[0].copy();pose[:2]=target[:2]
+        pose[5]=np.sin(target[2]/2);pose[6]=np.cos(target[2]/2)
+        np.testing.assert_allclose(absolute_base_to_native(target,pose)[:3],0,atol=1e-6)
+
+    def test_absolute_overlay_stops_at_episode_boundary_and_is_not_loaded_for_inference(self):
+        import tempfile
+        import numpy as np
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from pi0_r1_config import R1AbsoluteBaseInputs,load_absolute_overlay
+        inputs={'state':np.zeros(21,np.float32),'prompt':'task'}
+        for key in ('head_image','left_wrist_image','right_wrist_image'):inputs[key]=np.zeros((256,256,3),np.uint8)
+        inference=R1AbsoluteBaseInputs('/nonexistent-not-read')(inputs)
+        self.assertNotIn('index',inference);self.assertNotIn('actions',inference)
+        with tempfile.TemporaryDirectory() as directory:
+            labels=np.arange(4*21,dtype=np.float32).reshape(4,21)
+            np.save(Path(directory)/'train-actions.npy',labels);np.save(Path(directory)/'train-episode-ends.npy',np.array([1,1,3,3]))
+            import json,hashlib
+            provenance=Path(directory)/'provenance.json';provenance.write_text('{}')
+            (Path(directory)/'manifest.json').write_text(json.dumps({'splits':{'train':{
+                'frames':4,'source_provenance':str(provenance),
+                'source_provenance_sha256':hashlib.sha256(provenance.read_bytes()).hexdigest(),
+                'label_sha256':hashlib.sha256(labels.tobytes()).hexdigest()}}}))
+            data={**inputs,'actions':np.zeros((50,21),np.float32),'index':1}
+            converted=R1AbsoluteBaseInputs(directory)(data)
+            np.testing.assert_array_equal(converted['actions'],np.repeat(labels[1:2],50,axis=0))
+            self.assertEqual(converted['state'].shape,(21,));self.assertNotIn('index',converted)
+            load_absolute_overlay.cache_clear()
+
     def test_real_three_views_and_native_actions_roundtrip(self):
         sys.path.insert(0,str(ROOT/'scripts'))
         import numpy as np
