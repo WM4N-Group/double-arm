@@ -18,3 +18,11 @@
 - Remote `runs/RESOURCE_ALLOCATION.json` records the allocation. Old user-pause markers were archived after explicit resumption; saved data, checkpoints and logs remain intact.
 - Keep automatic notifications quiet unless a meaningful new completion, failure, or required user action occurs. Do not treat a generic heartbeat as permission to expand GPU allocation.
 - Grasp acceptance must distinguish assisted attachment from physical contact/friction. Original MoMaGen uses gripper friction 4.0; do not claim physical grasp results are calibrated to real hardware.
+
+## Current policy mainline (2026-11-15)
+
+- User selected **official MoMaGen demonstration generation → pretrained π₀ (pi-zero) LoRA fine-tuning → joint navigation + manipulation**. Do not substitute our state MLP, nearest-neighbor memory, π₀.₅, or π₀-FAST and call it this result.
+- Use the isolated Python3.11 `envs/openpi`; never upgrade the pinned MoMaGen/Isaac Python3.10 environment for π₀.
+- Real head + both wrist RGB images, proprioception and instruction are the π₀ inputs. No simulator object poses, phase/time or future observations as inference inputs.
+- Preserve author-config assisted generation provenance. Physical-only closed-loop evaluation and its friction caveat remain separate acceptance gates; do not silently relabel assisted source data as physical.
+- Pi0 framework, converter and source versions are in `config/pi0.env`. All checkpoints, RGB datasets and training remain remote. Pilot data scale is not a reproduction of the paper's 1000-demo results.
