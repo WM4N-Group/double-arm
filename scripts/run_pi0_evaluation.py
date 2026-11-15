@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from resource_allocation import resolve_gpu
+from pi0_review_contract import physical_task_passed
 
 
 def read(path,default=None):
@@ -79,7 +80,7 @@ def main():
             return subprocess.Popen(['timeout','--signal=TERM','--kill-after=60s',str(max(1,int(deadline-time.monotonic()))),
                 'taskset','-c','88-103']+command,stdout=handle,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,
                 start_new_session=True,env={**base,**(extra or {})})
-    server=None;simulation=None
+    server=None;simulation=None;exporter=None
     try:
         existing=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid','--format=csv,noheader'],text=True)
         if any(line.split(',')[0].strip()==gpu for line in existing.splitlines()):raise RuntimeError('Allocated GPU occupied; refusing to steal it')
@@ -124,18 +125,31 @@ def main():
             if server.poll() is not None:raise RuntimeError('Pi0 service exited during rollout; no fallback allowed')
             time.sleep(15)
         result=read(out/'physical-rollout/result.json',{})
-        eligible=simulation.returncode==0 and result.get('mode')=='closed_loop_neural_policy' and result.get('algorithm')=='official_openpi_pi0_lora32'
-        eligible=eligible and result.get('task_success') is True and result.get('privileged_state') is False
-        eligible=eligible and result.get('planner_enabled') is False and result.get('teacher_action_reads')==0
-        eligible=eligible and result.get('grasping_mode')=='physical' and result.get('assisted_constraint_seen') is False and result.get('object_pose_write_count')==0
+        eligible=simulation.returncode==0 and physical_task_passed(result)
         save(stage='pi0_physical_closed_loop_success_review_required' if eligible else 'pi0_physical_closed_loop_failed',
              task_success=bool(eligible),result=result,video=str(out/'physical-rollout/demo_0.mp4'))
+        # Review export has its own status: artifact errors must not change the
+        # actual physical result or quietly turn failed attempts into successes.
+        if result.get('episodes') and (out/'physical-rollout/demo_0.mp4').is_file():
+            exporter=launch([str(root/'envs/openpi/bin/python'),'-u',str(script/'export_pi0_review.py'),
+                '--campaign',str(out.parent),'--evaluation',str(out),'--output',str(out/'review')],
+                out/'review-export.log',{'CUDA_VISIBLE_DEVICES':'','JAX_PLATFORMS':'cpu'})
+            try:
+                export_code=exporter.wait(timeout=min(600,max(1,deadline-time.monotonic())))
+            except subprocess.TimeoutExpired:
+                os.killpg(exporter.pid,signal.SIGTERM)
+                try:exporter.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(exporter.pid,signal.SIGKILL);exporter.wait(timeout=10)
+                export_code=124
+            save(review_export_exit_status=export_code,
+                 review_directory=str(out/'review') if export_code==0 and (out/'review/review.json').is_file() else None)
         return 0 if eligible else 7
     except Exception as error:
         save(stage='pi0_deployment_or_evaluation_failed',error=repr(error),task_success=False)
         raise
     finally:
-        for process in (simulation,server):
+        for process in (exporter,simulation,server):
             if process and process.poll() is None:
                 try:os.killpg(process.pid,signal.SIGTERM)
                 except ProcessLookupError:pass

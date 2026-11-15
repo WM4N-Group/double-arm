@@ -54,6 +54,17 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
 
+    def test_evaluation_exports_separately_labelled_review(self):
+        source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
+        self.assertIn('physical_task_passed(result)',source)
+        self.assertIn("str(script/'export_pi0_review.py')",source)
+        self.assertIn('review_export_exit_status=export_code',source)
+        export=(ROOT/'scripts/export_pi0_review.py').read_text()
+        self.assertIn('PI0 FAILED ATTEMPT - NOT A SUCCESS DEMO',export)
+        self.assertIn('PI0 PHYSICAL SUCCESS - MANUAL REVIEW PENDING',export)
+        self.assertIn('fingerprint_checkpoint(checkpoint)',export)
+        self.assertNotIn('copytree(',export)
+
     def test_single_gpu_deployment_can_keep_pi0_on_cpu_without_model_substitution(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn("choices=['cpu','gpu'],default='cpu'",source)
