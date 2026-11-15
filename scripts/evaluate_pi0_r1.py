@@ -121,7 +121,9 @@ def main():
         np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions)
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     except BaseException as error:
-        failed=True;result.update(error=repr(error),task_success=False);traceback.print_exc();save()
+        failed=True;result.update(error=repr(error),task_success=False)
+        if audit:result['object_pose_write_count']=len(audit.events)
+        traceback.print_exc();save()
     finally:
         if audit:audit.close()
         if writer:writer.close()
