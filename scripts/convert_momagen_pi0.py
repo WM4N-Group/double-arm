@@ -69,6 +69,8 @@ def main():
     if len(train)<args.min_train_episodes or len(validation)!=1:
         print(json.dumps({'train_episodes':len(train),'validation_episodes':len(validation),'rejected':rejected},indent=2))
         raise SystemExit(3)
+    import torch
+    torch.set_num_threads(4);torch.set_num_interop_threads(1)
     from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
     for split,repo,episodes in [('train',args.train_repo,train),('validation',args.validation_repo,validation)]:
         features={key:{'dtype':'image','shape':(256,256,3),'names':['height','width','channel']} for key in ['head_image','left_wrist_image','right_wrist_image']}
@@ -78,11 +80,19 @@ def main():
         for entry in episodes:
             with h5py.File(entry['source'],'r') as file:
                 g=file['data'][entry['source_demo']];cameras,actions,state,_=inspect_episode(g)
-                for index in range(len(actions)):
-                    frame={key:rgb_image(g['obs'][name][index]) for key,name in cameras.items()}
-                    if any(value.shape!=(256,256,3) for value in frame.values()):raise ValueError('Unexpected native camera resolution')
-                    frame.update(state=state[index].astype(np.float32),actions=actions[index],task=PROMPT)
-                    dataset.add_frame(frame)
+                # Upstream gzip chunks span ~100 time steps and tiny spatial
+                # tiles. Per-frame reads repeatedly decompress the same chunks;
+                # read one aligned temporal block (roughly 80MiB) instead.
+                block_size=max(g['obs'][name].chunks[0] if g['obs'][name].chunks else 32 for name in cameras.values())
+                for first in range(0,len(actions),block_size):
+                    last=min(first+block_size,len(actions))
+                    images={key:g['obs'][name][first:last] for key,name in cameras.items()}
+                    for offset,index in enumerate(range(first,last)):
+                        frame={key:rgb_image(value[offset]) for key,value in images.items()}
+                        if any(value.shape!=(256,256,3) for value in frame.values()):raise ValueError('Unexpected native camera resolution')
+                        frame.update(state=state[index].astype(np.float32),actions=actions[index],task=PROMPT)
+                        dataset.add_frame(frame)
+                    print(json.dumps({'split':split,'source_demo':entry['source_demo'],'buffered_frames':last,'total':len(actions)}),flush=True)
                 dataset.save_episode()
             print(json.dumps({'split':split,'converted_source':entry['source'],'episode':entry['source_demo'],'frames':entry['frames']}),flush=True)
         dataset.stop_image_writer()

@@ -21,6 +21,7 @@ def camera_keys(observations):
 
 
 def rgb_image(image):
+    if hasattr(image,'detach'):image=image.detach().cpu().numpy()
     x=np.asarray(image)
     if x.ndim!=3:raise ValueError('Image must be HWC or CHW')
     if x.shape[0] in (3,4) and x.shape[-1] not in (3,4):x=np.transpose(x,(1,2,0))

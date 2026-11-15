@@ -41,6 +41,17 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("'PI0_TRAIN_STEPS':'20'",source)
         self.assertIn("task_success=False",source)
 
+    def test_visual_pi0_eval_has_one_reset_and_no_teacher_or_object_pose_inputs(self):
+        source=(ROOT/'scripts/evaluate_pi0_r1.py').read_text();tree=ast.parse(source)
+        loads=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='load_state']
+        self.assertEqual(len(loads),1)
+        self.assertNotIn('add_unique_task_poses(',source)
+        self.assertNotIn("g['actions']",source)
+        self.assertIn("meta['env_kwargs']['init_curobo']=False",source)
+        self.assertIn("prompt=PROMPT",source)
+        self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
+        self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
+
     def test_zero_disk_relay_is_not_an_open_proxy(self):
         sys.path.insert(0,str(ROOT/'scripts'))
         from relay_public_pi0_assets import allowed_path
@@ -73,6 +84,20 @@ class Pi0Numerics(unittest.TestCase):
         np.testing.assert_array_equal(unpad_pi0_actions(padded),actions)
         self.assertEqual(converted['prompt'],data['prompt'])
         self.assertNotIn('object::cup',converted)
+
+    def test_cross_environment_rpc_keeps_real_images_and_proprio_exact(self):
+        import numpy as np
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from pi0_rpc import encode_observation,decode_observation
+        rng=np.random.default_rng(53)
+        inputs={'state':rng.normal(size=21).astype('float32'),'prompt':'pick and transport'}
+        for key in ('head_image','left_wrist_image','right_wrist_image'):
+            inputs[key]=rng.integers(0,256,size=(256,256,3),dtype=np.uint8)
+        restored=decode_observation(encode_observation(inputs))
+        for key in ('state','head_image','left_wrist_image','right_wrist_image'):
+            np.testing.assert_array_equal(restored[key],inputs[key])
+        broken=encode_observation(inputs);broken['left_wrist_image']['shape']=[2,2,3]
+        with self.assertRaises(ValueError):decode_observation(broken)
 
     def test_native_hdf5_checks_real_synchronized_views(self):
         import tempfile

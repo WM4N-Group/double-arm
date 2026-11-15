@@ -104,9 +104,22 @@ def main():
     save(pi0_gradient_smoke='completed_20_updates',training='smoke_completed_not_task_success')
     code=run([py,str(script/'run_pi0_entrypoint.py'),'train'],'pi0_lora_finetuning',True,{'PI0_TRAIN_STEPS':'30000'})
     if code:save(stage='pi0_finetuning_failed_or_timed_out',exit_status=code,task_success=False);return 9
-    save(stage='pi0_finetuning_completed_evaluation_required',training='completed',task_success=False,
-         next_step='Separate native R1 visual closed-loop rollout; no planner/teacher, physical mode, no object pose writes; video required')
-    return 0
+    save(stage='pi0_finetuning_completed_evaluation_required',training='completed',task_success=False)
+    checkpoint_root=root/'runs/pi0-checkpoints/pi0_r1_tidy_table_lora32'/c.name
+    checkpoints=[path for path in checkpoint_root.glob('*') if path.name.isdigit() and (path/'params').is_dir()]
+    if not checkpoints:save(stage='pi0_checkpoint_not_found_after_training',task_success=False);return 10
+    checkpoint=max(checkpoints,key=lambda path:int(path.name))
+    evaluation=c/'pi0-native-physical-evaluation'
+    code=run([sys.executable,str(script/'run_pi0_evaluation.py'),'--root',str(root),
+              '--checkpoint',str(checkpoint),'--source-dataset',str(next((source/'generated').glob('*/demo.hdf5'))),
+              '--training-provenance',str(train/'momagen-provenance.json'),'--output',str(evaluation),
+              '--hours',str(min(2,max(.01,(deadline-time.monotonic())/3600)))],
+             'pi0_visual_physical_evaluation',True)
+    assessed=read(evaluation/'status.json',{})
+    save(stage='pi0_physical_success_video_review_required' if assessed.get('task_success') is True else 'pi0_trained_but_physical_evaluation_not_passed',
+         training='completed',evaluation_exit_status=code,task_success=assessed.get('task_success') is True,
+         evaluation_result=assessed,checkpoint=str(checkpoint))
+    return 0 if assessed.get('task_success') is True else 11
 
 
 if __name__=='__main__':

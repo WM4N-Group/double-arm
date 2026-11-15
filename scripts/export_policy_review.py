@@ -71,7 +71,7 @@ def main():
     for i,image in enumerate(thumbs):sheet.paste(image,((i%3)*width,(i//3)*(height+24)))
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
     review={'task':manifest['env_args']['env_name'],'method':manifest['algorithm'],
-          'training_method':manifest.get('training_method',manifest['algorithm']),'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
+          'training_method':manifest.get('training_method',manifest['algorithm']),'privileged_state':manifest.get('privileged_state',True),'single_demo_smoke':manifest.get('single_demo_smoke',False),
           'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':result['mode'],
           'policy_training':'completed','planner_enabled':False,'teacher_action_reads':0,
           'grasping_mode':grasping_mode,'assisted_constraint_seen':result.get('assisted_constraint_seen'),'object_pose_write_count':result.get('object_pose_write_count'),'upstream_finger_friction':result.get('upstream_finger_friction'),'physical_parameters_calibrated_to_real_robot':False,'task_success':episode.get('sustained_success',False),'episode':episode,
