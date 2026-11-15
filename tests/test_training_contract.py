@@ -89,6 +89,29 @@ class CampaignRestartContract(unittest.TestCase):
             self.assertEqual(next_generation_seed(root, {'gpu1_seed':300}, {}), 800)
 
 
+class PhysicalGraspContract(unittest.TestCase):
+    def test_mode_switch_requires_empty_hands_and_no_constraints(self):
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from grasping_validation import activate_physical_after_reset
+        class Robot:
+            _grasping_mode='assisted'
+            _ag_obj_in_hand={'left':None,'right':None}
+            _ag_obj_constraints={'left':None,'right':None}
+            @property
+            def grasping_mode(self):return self._grasping_mode
+        robot=Robot();activate_physical_after_reset(robot)
+        self.assertEqual(robot.grasping_mode,'physical')
+        for attribute in ('_ag_obj_in_hand','_ag_obj_constraints'):
+            blocked=Robot();setattr(blocked,attribute,{'left':object(),'right':None})
+            with self.assertRaises(ValueError):activate_physical_after_reset(blocked)
+            self.assertEqual(blocked.grasping_mode,'assisted')
+
+    def test_publisher_rejects_assisted_success(self):
+        source=(ROOT/'scripts/continue_learning_campaign.py').read_text()
+        self.assertIn("result.get('grasping_mode')!='physical'",source)
+        self.assertIn("result.get('assisted_constraint_seen') is not False",source)
+
+
 @unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('h5py'),
                      'Numerical tests are server-only; no local training dependencies')
 class StatePolicyNumerics(unittest.TestCase):

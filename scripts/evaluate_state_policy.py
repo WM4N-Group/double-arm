@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import torch
 from policy_action_codecs import decode_world_base_goals
+from grasping_validation import activate_physical_after_reset
 from state_policy_features import add_unique_task_poses, vectorize, as_numpy
 from train_state_policy import ChunkPolicy, JOINT, GRIP, joint_anchor
 
@@ -31,6 +32,7 @@ def main():
     p.add_argument('--video-skip',type=int,default=2)
     p.add_argument('--camera-layout',choices=['follow_ego','global_ego'],default='follow_ego')
     p.add_argument('--seed',type=int,default=123)
+    p.add_argument('--grasping-mode',choices=['configured','physical'],default='configured')
     args=p.parse_args()
     if args.output.exists(): raise FileExistsError(args.output)
     args.output.mkdir(parents=True)
@@ -82,6 +84,11 @@ def main():
         # is called: its generation-only implementation assumes a planner exists.
         env=EnvOmniGibson(env_name=meta['env_name'],**meta['env_kwargs'])
         from pxr import Gf
+        configured_grasp_mode=env.robot.grasping_mode
+        manifest['configured_grasping_mode']=configured_grasp_mode
+        manifest['grasping_mode']='physical' if args.grasping_mode=='physical' else configured_grasp_mode
+        manifest['assisted_constraint_seen']=False
+        policy_label+=' / '+manifest['grasping_mode'].upper()+' GRASP'
         actual_grip=[int(as_numpy(env.robot.gripper_action_idx[a]).reshape(-1)[0]) for a in ('left','right')]
         if actual_grip!=GRIP: raise ValueError(f'R1 action layout mismatch: {actual_grip}')
         if env.robot.controllers['base'].motor_type!='position':
@@ -91,6 +98,7 @@ def main():
         quat=mat.ExtractRotationQuat(); imag=quat.GetImaginary()
         camera_quat=torch.tensor([imag[0],imag[1],imag[2],quat.GetReal()],dtype=torch.float32)
         for demo in demos:
+            env.robot._grasping_mode=configured_grasp_mode
             with h5py.File(args.dataset,'r') as f:
                 initial=f[f'data/{demo}/states'][0]
                 ref_len=len(f[f'data/{demo}/states'])
@@ -98,6 +106,7 @@ def main():
             if int(og.sim.dump_state(serialized=True).numel())!=len(initial):
                 raise ValueError('Serialized scene state layout mismatch')
             og.sim.load_state(torch.tensor(initial,dtype=torch.float32),serialized=True)
+            if args.grasping_mode=='physical':activate_physical_after_reset(env.robot)
             for _ in range(3): og.sim.render()
             predicate=env.env.task._termination_conditions["predicate"]
             predicate.reset(env.env.task,env.env)
@@ -140,6 +149,9 @@ def main():
                 trace_x.append(x); trace_a.append(action)
                 base_path.append(as_numpy(env.robot.get_position_orientation()[0]).copy())
                 raw_obs,reward,done,truncated,info=env.env.step(torch.tensor(action))
+                assisted=any(v is not None for v in env.robot._ag_obj_constraints.values())
+                manifest['assisted_constraint_seen'] |= assisted
+                if args.grasping_mode=='physical' and assisted:raise RuntimeError('Assisted constraint appeared during physical-only evaluation')
                 obs,_=env.get_obs_IL(di=(raw_obs, {})); obs=add_unique_task_poses(env,obs)
                 for side,key in enumerate(('grasp_left','grasp_right')):
                     gripped[side] |= int(as_numpy(obs[key]).reshape(-1)[0])==1
