@@ -53,6 +53,9 @@ def main():
     p.add_argument('--campaign',required=True,type=Path);p.add_argument('--hours',type=float,default=8)
     p.add_argument('--root',type=Path,default=Path('/mnt/yuanyue/double-arm'))
     a=p.parse_args();c=a.campaign;root=a.root;script=Path(__file__).resolve().parent
+    if (root/'runs/USER_PAUSED.json').exists():
+        print('Project paused by user; no server workloads will start',flush=True)
+        return 0
     if not str(c).startswith(str(root/'runs')+'/'):raise ValueError('Remote campaign path required')
     lock=(c/'continuation.lock').open('a')
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
