@@ -52,25 +52,30 @@ def main():
     try: font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',16)
     except OSError:font=ImageFont.load_default()
     thumbs=[]
-    for fraction in (0.02,0.20,0.40,0.60,0.80,0.98):
-        second=max(0,min(video['duration']*fraction,video['duration']-0.05))
+    policy_label='MEMORY BC / NOT NEURAL' if manifest['algorithm']=='nearest_state_memory_BC' else 'LEARNED POLICY'
+    numerator,denominator=map(float,video['r_frame_rate'].split('/'))
+    last_frame_time=max(0,video['duration']-2*denominator/numerator)
+    for fraction in (0.02,0.20,0.40,0.60,0.80,1.0):
+        second=max(0,min(video['duration']*fraction,last_frame_time))
         raw=subprocess.check_output(['ffmpeg','-v','error','-ss',str(second),'-i',str(dest),
              '-frames:v','1','-vf','scale=640:-2','-f','image2pipe','-vcodec','png','-'])
         image=Image.open(io.BytesIO(raw)).convert('RGB')
-        ImageDraw.Draw(image).text((8,32),f'{second:.1f}s / LEARNED POLICY',font=font,fill='yellow',stroke_width=1,stroke_fill='black')
+        ImageDraw.Draw(image).text((8,32),f'{second:.1f}s / {policy_label}',font=font,fill='yellow',stroke_width=1,stroke_fill='black')
         thumbs.append(image)
     width,height=thumbs[0].size
     sheet=Image.new('RGB',(width*3,2*(height+24)),'#161616')
     for i,image in enumerate(thumbs):sheet.paste(image,((i%3)*width,(i//3)*(height+24)))
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
     review={'task':manifest['env_args']['env_name'],'method':manifest['algorithm'],
-          'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
+          'training_method':manifest.get('training_method',manifest['algorithm']),'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
           'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':result['mode'],
           'policy_training':'completed','planner_enabled':False,'teacher_action_reads':0,
           'task_success':episode.get('sustained_success',False),'episode':episode,
           'source_video':str(source),'checkpoint':result['checkpoint'],
           'checkpoint_sha256':sha256_file(result['checkpoint']),'training_dataset_sha256':manifest['dataset_sha256'],
           'video':video,'caveat':('Explicit single-demonstration overfit smoke test, not a generalization claim. Single active arm R1 task.' if manifest.get('single_demo_smoke') else 'Generated source distribution, not a new-scene generalization claim. Single active arm R1 task.')}
+    if manifest['algorithm']=='nearest_state_memory_BC':
+        review['caveat']='Nonparametric nearest-state memory BC, NOT a gradient-trained neural policy. '+review['caveat']
     (args.output/'review.json').write_text(json.dumps(review,indent=2))
     print(json.dumps(review,indent=2),flush=True)
 

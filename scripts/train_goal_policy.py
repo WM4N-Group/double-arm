@@ -33,6 +33,8 @@ def main():
     parser.add_argument('--dataset',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--val-demo',default='demo_0')
+    parser.add_argument('--train-demo',action='append',default=[])
+    parser.add_argument('--single-demo-smoke',action='store_true')
     parser.add_argument('--target-offset',type=int,default=8)
     parser.add_argument('--steps',type=int,default=40000)
     parser.add_argument('--batch',type=int,default=512)
@@ -47,8 +49,10 @@ def main():
     torch.manual_seed(args.seed);np.random.seed(args.seed)
     torch.set_num_threads(4);torch.set_num_interop_threads(1)
     episodes,keys,meta=load_episodes(args.dataset)
-    train=[e for e in episodes if e[0]!=args.val_demo];val=[e for e in episodes if e[0]==args.val_demo]
-    if len(train)<2 or len(val)!=1:raise ValueError('Episode-disjoint validation required')
+    train=[e for e in episodes if e[0]!=args.val_demo and (not args.train_demo or e[0] in args.train_demo)]
+    val=[e for e in episodes if e[0]==args.val_demo]
+    if not train or len(val)!=1 or (len(train)<2 and not args.single_demo_smoke):raise ValueError('Episode-disjoint validation required; one demo needs explicit smoke-test flag')
+    if args.single_demo_smoke and len(train)!=1:raise ValueError('Single-demo smoke must use exactly one training episode')
     x=np.concatenate([e[1] for e in train]);raw_actions=np.concatenate([e[2] for e in train])
     mean=x.mean(0);scale=np.maximum(x.std(0),.05);scale[3:6]=1e6
     def pack(episodes):
@@ -81,6 +85,7 @@ def main():
     manifest={'algorithm':'denoising_world_goal_MLP_BC','training_method':'Gradient-trained privileged-state BC with noisy observations and demonstration lookahead targets',
         'dataset':str(args.dataset),'dataset_sha256':sha,'keys':keys,'env_args':meta,'privileged_state':True,
         'train_demos':[e[0] for e in train],'val_demos':[args.val_demo],
+        'single_demo_smoke':args.single_demo_smoke,'unused_demos':[e[0] for e in episodes if e[0] not in [t[0] for t in train+val]],
         'target_offset':args.target_offset,'observation_noise':True,'history':args.history,'history_stride':args.history_stride,
         'arguments':{k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},
         'caveat':'No simulator recovery labels; not DAgger, no novel-scene generalization claim'}

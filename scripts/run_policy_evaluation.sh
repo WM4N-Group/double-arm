@@ -26,7 +26,7 @@ set +e
 timeout --signal=TERM --kill-after=90s "${EVAL_TIMEOUT_SECONDS:-7200}" \
  python -u "$SCRIPT_DIR/evaluate_state_policy.py" --dataset "$DATASET" \
  --checkpoint "$POLICY_RUN/${CHECKPOINT_NAME:-best.pt}" --output "$POLICY_RUN/evaluation" \
- "${DEMO_ARGS[@]}" --max-steps "${EVAL_MAX_STEPS:-4000}" 2>&1 | tee "$POLICY_RUN/evaluation.log"
+ "${DEMO_ARGS[@]}" --camera-layout "${EVAL_CAMERA_LAYOUT:-global_ego}" --max-steps "${EVAL_MAX_STEPS:-4000}" 2>&1 | tee "$POLICY_RUN/evaluation.log"
 STATUS=${PIPESTATUS[0]}
 set -e
 python - "$POLICY_RUN" "$STATUS" <<'PY'
