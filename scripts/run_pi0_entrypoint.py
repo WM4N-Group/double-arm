@@ -11,6 +11,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode',choices=['config','norms','train'])
     args,remaining=parser.parse_known_args()
+    root=Path(os.environ.get('DOUBLE_ARM_ROOT','/mnt/yuanyue/double-arm'))
+    os.environ.setdefault('OPENPI_DATA_HOME',str(root/'cache/openpi'))
+    os.environ.setdefault('XDG_CACHE_HOME',str(root/'cache/xdg'))
     from pi0_r1_config import register_config
     config=register_config()
     if args.mode=='config':print(config);return

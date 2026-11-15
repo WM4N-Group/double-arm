@@ -35,9 +35,15 @@ uv pip install --no-sources --python "$PY" --index-url "${PI0_PACKAGE_INDEX:-htt
 uv pip check --python "$PY"
 uv pip freeze --python "$PY" > "$DOUBLE_ARM_ROOT/envs/openpi/requirements-frozen.txt"
 # CPU only import audit: installation must not initialize JAX on a busy GPU.
-JAX_PLATFORMS=cpu CUDA_VISIBLE_DEVICES='' "$PY" - <<'PY'
-import sys,jax,flax,torch,h5py
+JAX_PLATFORMS=cpu CUDA_VISIBLE_DEVICES='' "$PY" -u - <<'PY'
+import sys
+print('IMPORT_CHECK jax',flush=True)
+import jax,flax
+print('IMPORT_CHECK torch',flush=True)
+import torch,h5py
+print('IMPORT_CHECK lerobot',flush=True)
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+print('IMPORT_CHECK pi0_config',flush=True)
 from openpi.models.pi0_config import Pi0Config
 assert sys.version_info[:2]==(3,11)
 print('OPENPI_IMPORT_OK',sys.version.split()[0],jax.__version__,flax.__version__,torch.__version__)

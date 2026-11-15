@@ -40,7 +40,7 @@ def main():
     initial=read(c/'status.json',{})
     elapsed=max(0,time.time()-datetime.fromisoformat(initial.get('started_at',datetime.now(timezone.utc).isoformat())).timestamp())
     deadline=time.monotonic()+max(0,a.hours*3600-elapsed);script=Path(__file__).resolve().parent
-    state=read(c/'status.json',{});state.update(controller_pid=os.getpid(),controller_started_at=datetime.now(timezone.utc).isoformat(),max_hours=a.hours,
+    state=read(c/'status.json',{});state.pop('error',None);state.update(controller_pid=os.getpid(),controller_started_at=datetime.now(timezone.utc).isoformat(),max_hours=a.hours,
         official_policy_framework='openpi pi0 JAX/Flax LoRA rank32; frozen pretrained base; no state-BC substitution',gpu_uuid=gpu)
     (root/'runs/latest-single-gpu-job.json').write_text(json.dumps({'controller_pid':os.getpid(),'campaign':str(c),'gpu_uuid':gpu,'max_gpu_count':1,'status_file':str(c/'status.json'),'mainline':'official MoMaGen RGB -> pi0 LoRA'},indent=2))
     def save(**kw):
