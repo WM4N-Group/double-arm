@@ -242,6 +242,36 @@ class StatePolicyNumerics(unittest.TestCase):
         torch.testing.assert_close(model(query), NearestStatePolicy(centers[order],targets[order])(query))
         self.assertFalse(hasattr(model, 'cursor'))
 
+    def test_world_goal_residual_anchor_matches_native_motor_layout(self):
+        import numpy as np
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from policy_action_codecs import world_goal_anchor, encode_world_base_goals
+        from train_state_policy import joint_anchor
+        rng=np.random.default_rng(13);prop=rng.normal(size=(5,21)).astype('float32')
+        motor=joint_anchor(prop);poses=np.zeros((5,7),np.float32);poses[:,:3]=rng.normal(size=(5,3));poses[:,6]=1
+        heading=rng.uniform(-np.pi,np.pi,size=5).astype('float32')
+        np.testing.assert_allclose(world_goal_anchor(poses,heading,motor),
+            encode_world_base_goals(motor,poses,heading),atol=1e-7)
+        self.assertEqual(world_goal_anchor(poses[0],heading[0],motor[0]).shape,(22,))
+
+    def test_noisy_anchor_correction_preserves_absolute_supervision(self):
+        import numpy as np
+        import torch
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from policy_action_codecs import world_goal_anchor
+        from train_feedback_policy import anchor_noise_delta
+        from train_state_policy import joint_anchor
+        rng=np.random.default_rng(19);raw=rng.normal(size=(8,68)).astype('float32');noise=rng.normal(scale=.01,size=raw.shape).astype('float32')
+        def reference(x):
+            poses=np.zeros((len(x),7),np.float32);poses[:,:2]=x[:,:2];poses[:,6]=1
+            prop=np.zeros((len(x),21),np.float32);prop[:,3:13]=x[:,6:16];prop[:,13:19]=x[:,24:30]
+            return world_goal_anchor(poses,x[:,2],joint_anchor(prop))
+        expected=reference(raw+noise)-reference(raw)
+        actual=anchor_noise_delta(torch.tensor(raw),torch.tensor(noise)).numpy()
+        np.testing.assert_allclose(actual,expected,atol=3e-7)
+        np.testing.assert_allclose((reference(raw)+2-actual)+reference(raw+noise),
+            (reference(raw)+2)+reference(raw),atol=7e-7)
+
     def test_world_base_goal_codec_roundtrip(self):
         sys.path.insert(0, str(ROOT / 'scripts'))
         import numpy as np

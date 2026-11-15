@@ -30,3 +30,18 @@ def decode_world_base_goals(goals,base_pose,base_heading):
     heading=np.arctan2(goals[:,2],goals[:,3]);difference=heading-base_heading
     yaw=np.arctan2(np.sin(difference),np.cos(difference))[:,None]
     return np.concatenate((xy,yaw,goals[:,4:]),axis=1).astype(np.float32)
+
+
+def world_goal_anchor(base_poses, base_headings, joint_anchors):
+    """Current measured motor state in the 22D goal encoding, without task logic.
+
+    Gripper classifier baselines are zero. Heading is kept as sin/cos so the
+    neural residual has no +/-pi discontinuity. No future observation is used.
+    """
+    poses=np.asarray(base_poses);heading=np.asarray(base_headings)
+    joints=np.asarray(joint_anchors)
+    if poses.shape[-1]!=7 or joints.shape[-1]!=21:
+        raise ValueError('Expected 7D root pose and 21D motor-layout joint anchors')
+    zeros=np.zeros(poses.shape[:-1]+(1,),dtype=np.float32)
+    return np.concatenate((poses[...,:2],np.sin(heading)[...,None],np.cos(heading)[...,None],
+                           joints[...,3:13],zeros,joints[...,14:20],zeros),axis=-1).astype(np.float32)

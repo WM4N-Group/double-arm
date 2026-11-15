@@ -15,7 +15,7 @@ import imageio.v2 as imageio
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import torch
-from policy_action_codecs import decode_world_base_goals
+from policy_action_codecs import decode_world_base_goals, world_goal_anchor
 from grasping_validation import activate_physical_after_reset
 from object_pose_audit import ObjectPoseAudit
 from state_policy_features import add_unique_task_poses, vectorize, as_numpy
@@ -46,7 +46,7 @@ def main():
     torch.manual_seed(args.seed); np.random.seed(args.seed)
     ckpt=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
     policy_label='LEARNED BC / ONE-DEMO SMOKE' if ckpt.get('single_demo_smoke') else 'LEARNED BC'
-    if ckpt.get('algorithm')=='denoising_world_goal_MLP_BC':
+    if ckpt.get('algorithm') in ('denoising_world_goal_MLP_BC','motor_state_residual_MLP_BC'):
         from train_goal_policy import GoalPolicy
         net=GoalPolicy(ckpt['obs_dim'],ckpt['history'],ckpt['hidden']).cuda().eval()
     elif ckpt.get('algorithm')=='nearest_state_memory_BC':
@@ -149,7 +149,9 @@ def main():
                 nx=(np.stack(past)-norm['x_mean'])/norm['x_std']
                 with torch.inference_mode(): out=net(torch.tensor(nx[None],device='cuda')).cpu().numpy()[0]
                 chunk=out*norm['y_std']+norm['y_mean']
-                if ckpt.get('action_mode')=='world_base_goal':
+                if ckpt.get('action_mode')=='world_base_goal_residual':
+                    chunk+=world_goal_anchor(as_numpy(obs['base_link_pose']),float(as_numpy(obs['base_qpos'])[2]),joint_anchor(as_numpy(obs['prop_state'])))
+                if ckpt.get('action_mode') in ('world_base_goal','world_base_goal_residual'):
                     chunk=decode_world_base_goals(chunk,as_numpy(obs['base_link_pose']),float(as_numpy(obs['base_qpos'])[2]))
                     jaw_scores=out[:,[14,21]]
                 else:jaw_scores=out[:,GRIP]
