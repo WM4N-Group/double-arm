@@ -27,6 +27,7 @@ def append_physical_success(path, name, initial_state, observations, actions, en
         if existing and json.loads(existing)['env_name']!=env_args['env_name']:raise ValueError('Cannot mix tasks')
         data.attrs['env_args']=json.dumps(env_args);data.attrs['demonstration_grasping_mode']='physical'
         data.attrs['schema']='physical_policy_successes_with_single_reset_state_v1'
+        data.attrs['collection_method']='closed-loop learned memory policy in physical mode; no online planner or teacher fallback'
         pending='_pending_'+name
         if pending in data:raise FileExistsError(pending)
         group=data.create_group(pending);group.attrs['partial']=True

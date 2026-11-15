@@ -49,6 +49,8 @@ def main():
     torch.manual_seed(args.seed);np.random.seed(args.seed)
     torch.set_num_threads(4);torch.set_num_interop_threads(1)
     episodes,keys,meta=load_episodes(args.dataset)
+    with h5py.File(args.dataset) as source:
+        demonstration_grasping_mode=source['data'].attrs.get('demonstration_grasping_mode','configured_or_unspecified')
     train=[e for e in episodes if e[0]!=args.val_demo and (not args.train_demo or e[0] in args.train_demo)]
     val=[e for e in episodes if e[0]==args.val_demo]
     if not train or len(val)!=1 or (len(train)<2 and not args.single_demo_smoke):raise ValueError('Episode-disjoint validation required; one demo needs explicit smoke-test flag')
@@ -84,6 +86,8 @@ def main():
     sha=digest(args.dataset)
     manifest={'algorithm':'denoising_world_goal_MLP_BC','training_method':'Gradient-trained privileged-state BC with noisy observations and demonstration lookahead targets',
         'dataset':str(args.dataset),'dataset_sha256':sha,'keys':keys,'env_args':meta,'privileged_state':True,
+        'demonstration_grasping_mode':demonstration_grasping_mode,
+        'reset_state_grasping_mode':meta.get('env_kwargs',{}).get('robots',[{}])[0].get('grasping_mode','unspecified'),
         'train_demos':[e[0] for e in train],'val_demos':[args.val_demo],
         'single_demo_smoke':args.single_demo_smoke,'unused_demos':[e[0] for e in episodes if e[0] not in [t[0] for t in train+val]],
         'target_offset':args.target_offset,'observation_noise':True,'history':args.history,'history_stride':args.history_stride,
