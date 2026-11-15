@@ -41,7 +41,7 @@ def main():
     elapsed=max(0,time.time()-datetime.fromisoformat(initial.get('started_at',datetime.now(timezone.utc).isoformat())).timestamp())
     deadline=time.monotonic()+max(0,a.hours*3600-elapsed);script=Path(__file__).resolve().parent
     state=read(c/'status.json',{});state.pop('error',None);state.update(controller_pid=os.getpid(),controller_started_at=datetime.now(timezone.utc).isoformat(),max_hours=a.hours,
-        official_policy_framework='openpi pi0 JAX/Flax LoRA rank32; frozen pretrained base; no state-BC substitution',gpu_uuid=gpu)
+        official_policy_framework='openpi pi0 JAX/Flax LoRA rank32; official freeze partition (LLM base frozen, vision/projections trainable); no state-BC substitution',gpu_uuid=gpu)
     (root/'runs/latest-single-gpu-job.json').write_text(json.dumps({'controller_pid':os.getpid(),'campaign':str(c),'gpu_uuid':gpu,'max_gpu_count':1,'status_file':str(c/'status.json'),'mainline':'official MoMaGen RGB -> pi0 LoRA'},indent=2))
     def save(**kw):
         state.update(kw,updated_at=datetime.now(timezone.utc).isoformat());tmp=c/'status.tmp';tmp.write_text(json.dumps(state,indent=2));tmp.replace(c/'status.json')
@@ -80,6 +80,13 @@ def main():
     if not (root/'envs/openpi/requirements-frozen.txt').exists():save(stage='environment_install_failed',error='Inspect environment-install.log');return 2
     code=run([py,str(script/'run_pi0_entrypoint.py'),'config'],'pi0_adapter_import_check')
     if code:save(stage='pi0_adapter_failed',exit_status=code);return 3
+    code=run([py,str(script/'audit_pi0_parameter_contract.py'),'--output',str(c/'pi0-parameter-contract.json')],
+             'pi0_parameter_contract')
+    if code:save(stage='pi0_parameter_contract_failed',exit_status=code);return 12
+    partition=read(c/'pi0-parameter-contract.json',{})
+    save(parameter_contract=str(c/'pi0-parameter-contract.json'),
+         trainable_parameters=partition.get('trainable_parameters'),frozen_parameters=partition.get('frozen_parameters'),
+         non_lora_trainable=partition.get('not_every_non_lora_leaf_frozen'))
     if not wait(a.generation_pid,'waiting_for_official_rgb_demonstrations'):return 75
     generation=None
     for line in (c/'official-generation.log').read_text(errors='replace').splitlines():

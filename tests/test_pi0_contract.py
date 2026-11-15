@@ -40,6 +40,8 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn('wait(a.generation_pid',source)
         self.assertIn("'PI0_TRAIN_STEPS':'20'",source)
         self.assertIn("task_success=False",source)
+        self.assertIn("'audit_pi0_parameter_contract.py'",source)
+        self.assertIn("stage='pi0_parameter_contract_failed'",source)
 
     def test_visual_pi0_eval_has_one_reset_and_no_teacher_or_object_pose_inputs(self):
         source=(ROOT/'scripts/evaluate_pi0_r1.py').read_text();tree=ast.parse(source)
@@ -51,6 +53,18 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("prompt=PROMPT",source)
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
+
+    def test_parameter_audit_is_abstract_cpu_only_and_checks_actual_partition(self):
+        source=(ROOT/'scripts/audit_pi0_parameter_contract.py').read_text()
+        self.assertIn("os.environ.get('JAX_PLATFORMS') != 'cpu'",source)
+        self.assertIn("os.environ.get('CUDA_VISIBLE_DEVICES') != ''",source)
+        self.assertIn('jax.eval_shape(',source)
+        self.assertIn('train.flat_state().items()',source)
+        self.assertIn('count(train) + count(frozen) != count(state)',source)
+        self.assertIn("'non_lora_trainable_leaves': non_lora",source)
+        tree=ast.parse(source)
+        self.assertFalse(any(isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+                             and node.func.attr in ('value_and_grad','grad') for node in ast.walk(tree)))
 
     def test_zero_disk_relay_is_not_an_open_proxy(self):
         sys.path.insert(0,str(ROOT/'scripts'))
