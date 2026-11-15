@@ -20,7 +20,8 @@ def main():
     source=Path(os.environ['OPENPI_ROOT']);sys.path.insert(0,str(source/'scripts'))
     if args.mode=='norms':
         import compute_norm_stats
-        compute_norm_stats.main(config.name)
+        limit=os.environ.get('PI0_NORM_MAX_FRAMES')
+        compute_norm_stats.main(config.name,max_frames=int(limit) if limit else None)
     else:
         sys.argv=[str(source/'scripts/train.py'),config.name,*remaining]
         runpy.run_path(str(source/'scripts/train.py'),run_name='__main__')
