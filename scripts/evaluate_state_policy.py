@@ -38,7 +38,14 @@ def main():
     torch.manual_seed(args.seed); np.random.seed(args.seed)
     ckpt=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
     policy_label='LEARNED BC / ONE-DEMO SMOKE' if ckpt.get('single_demo_smoke') else 'LEARNED BC'
-    if ckpt.get('algorithm')=='recurrent_GRU_BC':
+    if ckpt.get('algorithm')=='denoising_world_goal_MLP_BC':
+        from train_goal_policy import GoalPolicy
+        net=GoalPolicy(ckpt['obs_dim'],ckpt['history'],ckpt['hidden']).cuda().eval()
+    elif ckpt.get('algorithm')=='nearest_state_memory_BC':
+        from train_memory_policy import NearestStatePolicy
+        policy_label='MEMORY-BASED BC / NOT NEURAL'
+        net=NearestStatePolicy(ckpt['model']['centers'],ckpt['model']['targets']).cuda().eval()
+    elif ckpt.get('algorithm')=='recurrent_GRU_BC':
         from train_recurrent_policy import RecurrentPolicy
         net=RecurrentPolicy(ckpt['obs_dim'],ckpt['hidden'],ckpt['layers']).cuda().eval()
     elif ckpt.get('algorithm')=='rbf_kernel_BC':
@@ -49,7 +56,7 @@ def main():
     net.load_state_dict(ckpt['model'])
     norm={k:np.asarray(v,dtype=np.float32) for k,v in ckpt['norm'].items()}
     demos=args.demo or ckpt['val_demos']
-    manifest={'mode':'closed_loop_neural_policy','planner_enabled':False,'teacher_action_reads':0,
+    manifest={'mode':('closed_loop_learned_policy' if ckpt.get('algorithm')=='nearest_state_memory_BC' else 'closed_loop_neural_policy'),'algorithm':ckpt.get('algorithm','state_BC'),'planner_enabled':False,'teacher_action_reads':0,
               'checkpoint':str(args.checkpoint),'training_step':ckpt['step'],'camera_layout':args.camera_layout,
               'dataset':str(args.dataset),'privileged_state':True,'mixtures':ckpt.get('mixtures',1),'single_demo_smoke':ckpt.get('single_demo_smoke',False),'action_mode':ckpt.get('action_mode','delta_joint'),'episodes':[]}
     (args.output/'result.json').write_text(json.dumps(manifest,indent=2))

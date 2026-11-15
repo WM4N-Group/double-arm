@@ -62,7 +62,7 @@ def main():
     deadline=time.monotonic()+max(0,a.hours*3600-elapsed)
     state=read(c/'status.json',{});gpu1_run=Path(prior.get('gpu1_run') or state['gpu1_run'])
     gpu1_process=None;gpu1_log=None;seed=next_generation_seed(root,prior,state)
-    status={'stage':'continuing','started_at':original_start,'deadline_hours':a.hours,
+    status={'stage':'continuing','controller_pid':os.getpid(),'started_at':original_start,'deadline_hours':a.hours,
             'goal':'learned closed-loop navigation + grasp + placement video','goal_achieved':False}
     def save(**kwargs):
         status.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat())
@@ -119,7 +119,7 @@ def main():
               'created_at':datetime.now(timezone.utc).isoformat()}
         (c/'goal-demo-ready.json').write_text(json.dumps(ready,indent=2));save(stage='goal_video_ready',goal_achieved=True,**ready)
         print('GOAL_VIDEO_READY',json.dumps(ready),flush=True);return True
-    def evaluate(policy,checkpoint='best.pt'):
+    def evaluate(policy,checkpoint='best.pt',diagnostic_only=False):
         save(stage='evaluating_candidate',active_policy=str(policy),checkpoint=checkpoint)
         process=None
         existing=read(policy/'evaluation-process-result.json',{})
@@ -130,13 +130,37 @@ def main():
             process=spawn(['bash',str(script/'run_policy_evaluation.sh'),str(policy)],policy/'evaluation-controller.log',
                     {**os.environ,'EVAL_GPU':'0','EVAL_MAX_STEPS':'3000','CHECKPOINT_NAME':checkpoint,'EVAL_DEMOS':' '.join(selected)})
         while time.monotonic()<deadline:
-            if publish_if_success(policy):return True
+            if not diagnostic_only and publish_if_success(policy):return True
             report=read(policy/'evaluation-process-result.json',{})
             if report and report.get('stage')!='evaluating':break
             if process is not None and process.poll() is not None:break
             tick(20)
-        return publish_if_success(policy)
+        return not diagnostic_only and publish_if_success(policy)
     save()
+    # A bounded diagnostic may temporarily own GPU0. Its lock, not a stale JSON
+    # stage, determines whether another simulator can be started safely.
+    probe_lock=(c/'memory-probe.lock').open('a')
+    while time.monotonic()<deadline:
+        try:
+            fcntl.flock(probe_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            fcntl.flock(probe_lock,fcntl.LOCK_UN)
+            break
+        except BlockingIOError:
+            save(stage='waiting_for_external_gpu0_probe')
+            tick(20)
+    probe_lock.close()
+    for job in read(c/'pending-policy-evaluations.json',[]):
+        policy=Path(job['policy'])
+        if not str(policy.resolve()).startswith(str(c.resolve())+'/'):
+            raise ValueError('Pending policy must belong to this campaign')
+        while time.monotonic()<deadline and not (policy/'training-result.json').exists():
+            pid=job.get('training_pid')
+            if not pid or not Path(f'/proc/{int(pid)}').exists():break
+            save(stage='waiting_for_pending_training',active_policy=str(policy))
+            tick(20)
+        if time.monotonic()>=deadline:break
+        if (policy/'training-result.json').exists() and evaluate(policy,job.get('checkpoint','best.pt'),job.get('diagnostic_only',False)):
+            return 0
     # Reuse the running one-step evaluation; never open another simulator on GPU0.
     initial=[(c/'state-rbf-world-goal-seven','best.pt'),(c/'state-bc-one-step','best.pt'),(c/'state-rbf-absolute-seven','best.pt'),(c/'state-gru-seven','last.pt'),(c/'state-rbf-no-velocity-seven','best.pt'),(c/'state-bc-absolute-seven','last.pt')]
     for policy,checkpoint in initial:
@@ -163,7 +187,8 @@ def main():
         if snapshot_exit==124:break
         if snapshot_exit!=0:save(stage='insufficient_new_data',snapshot_exit=snapshot_exit);continue
         save(stage='training_more_data',dataset=str(dataset))
-        models=[('rbf-world-goal',[sys.executable,str(script/'train_rbf_policy.py'),'--action-mode','world_base_goal','--ignore-base-velocity','--normalize-basis','--orientation-noise-floor','0.15','--ridge','1e-5']),
+        models=[('neural-world-goal',[sys.executable,str(script/'train_goal_policy.py'),'--steps','40000']),
+                ('rbf-world-goal',[sys.executable,str(script/'train_rbf_policy.py'),'--action-mode','world_base_goal','--ignore-base-velocity','--normalize-basis','--orientation-noise-floor','0.15','--ridge','1e-5']),
                 ('mlp',[sys.executable,str(script/'train_state_policy.py'),'--steps','40000','--horizon','1','--hidden','768','--val-demo','demo_0']),
                 ('rbf',[sys.executable,str(script/'train_rbf_policy.py'),'--action-mode','absolute']),
                 ('gru',[sys.executable,str(script/'train_recurrent_policy.py'),'--updates','1500'])]
@@ -173,7 +198,7 @@ def main():
                      {**os.environ,'CUDA_VISIBLE_DEVICES':'0','OMP_NUM_THREADS':'4','OPENBLAS_NUM_THREADS':'4'})
             if code==124:break
             if code!=0:save(training_error=name,training_exit=code);continue
-            if evaluate(policy,'last.pt' if name=='gru' else 'best.pt'):return 0
+            if evaluate(policy,'last.pt' if name in ('gru','neural-world-goal') else 'best.pt'):return 0
     save(stage='deadline_reached_without_task_success',goal_achieved=False)
     return 124
 

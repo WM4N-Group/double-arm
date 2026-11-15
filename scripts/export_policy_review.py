@@ -25,7 +25,7 @@ def main():
     result=json.loads((args.policy_run/'evaluation/result.json').read_text())
     manifest=json.loads((args.policy_run/'manifest.json').read_text())
     if train.get('status')!='training_completed': raise ValueError('Training did not finish')
-    if result.get('mode')!='closed_loop_neural_policy' or result.get('planner_enabled') is not False or result.get('teacher_action_reads')!=0:
+    if result.get('mode') not in ('closed_loop_neural_policy','closed_loop_learned_policy') or result.get('planner_enabled') is not False or result.get('teacher_action_reads')!=0:
         raise ValueError('Not a teacher-free closed-loop policy evaluation')
     episodes=result.get('episodes',[])
     candidates=[e for e in episodes if e['demo']==args.demo] if args.demo else sorted(episodes,
@@ -65,7 +65,7 @@ def main():
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
     review={'task':manifest['env_args']['env_name'],'method':manifest['algorithm'],
           'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
-          'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':'closed_loop_neural_policy',
+          'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':result['mode'],
           'policy_training':'completed','planner_enabled':False,'teacher_action_reads':0,
           'task_success':episode.get('sustained_success',False),'episode':episode,
           'source_video':str(source),'checkpoint':result['checkpoint'],

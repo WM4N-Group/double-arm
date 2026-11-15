@@ -142,6 +142,29 @@ class StatePolicyNumerics(unittest.TestCase):
             torch.testing.assert_close(actual,expected,atol=1e-6,rtol=1e-5)
             model.reset_memory();torch.testing.assert_close(model(x[:,:1]),expected[:,:1],atol=1e-6,rtol=1e-5)
 
+    def test_neural_world_goal_policy_forward_and_gradient(self):
+        sys.path.insert(0, str(ROOT/'scripts'))
+        import torch
+        from train_goal_policy import GoalPolicy
+        model=GoalPolicy(68,history=4,hidden=32)
+        result=model(torch.randn(3,4,68))
+        self.assertEqual(tuple(result.shape),(3,1,22))
+        result.square().mean().backward()
+        self.assertTrue(all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters()))
+
+    def test_memory_policy_has_no_trajectory_order_or_cursor(self):
+        sys.path.insert(0, str(ROOT/'scripts'))
+        import torch
+        from train_memory_policy import NearestStatePolicy
+        torch.manual_seed(5)
+        centers=torch.randn(50, 12);targets=torch.randn(50, 22)
+        query=centers[[1, 30, 9]].reshape(3, 4, 3)
+        model=NearestStatePolicy(centers, targets)
+        torch.testing.assert_close(model(query)[:,0], targets[[1, 30, 9]])
+        order=torch.randperm(50)
+        torch.testing.assert_close(model(query), NearestStatePolicy(centers[order],targets[order])(query))
+        self.assertFalse(hasattr(model, 'cursor'))
+
     def test_world_base_goal_codec_roundtrip(self):
         sys.path.insert(0, str(ROOT / 'scripts'))
         import numpy as np
