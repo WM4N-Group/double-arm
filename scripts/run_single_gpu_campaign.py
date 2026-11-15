@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--audit-dir',type=Path)
     parser.add_argument('--hours',type=float,default=4)
     parser.add_argument('--target-successes',type=int,default=6)
+    parser.add_argument('--prior-physical-data',type=Path)
     args=parser.parse_args();root=args.root;c=args.campaign
     if (root/'runs/USER_PAUSED.json').exists():return 75
     config=allocation(root)
@@ -49,6 +50,7 @@ def main():
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat())
         tmp=c/'status.tmp';tmp.write_text(json.dumps(state,indent=2));tmp.replace(c/'status.json')
     save();(root/'runs/latest-single-gpu-campaign.txt').write_text(str(c)+'\n')
+    (root/'runs/latest-single-gpu-job.json').write_text(json.dumps({'controller_pid':os.getpid(),'campaign':str(c),'gpu_uuid':gpu,'max_gpu_count':1,'max_hours':args.hours},indent=2))
     env={**os.environ,'CUDA_VISIBLE_DEVICES':gpu,'EVAL_GPU':gpu,'OMP_NUM_THREADS':'4','MKL_NUM_THREADS':'4',
          'OPENBLAS_NUM_THREADS':'4','OMP_WAIT_POLICY':'PASSIVE'}
     def remaining():return max(0,deadline-time.monotonic())
@@ -106,6 +108,15 @@ def main():
     if result!=0:save(stage='physical_collection_failed',exit_status=result);return 2
     if not recorded.exists():
         save(stage='insufficient_physical_demonstrations',physical_demonstrations=0);return 3
+    if args.prior_physical_data and args.prior_physical_data.exists():
+        with h5py.File(args.prior_physical_data,'r') as old,h5py.File(recorded,'a') as new:
+            for name in old['data']:
+                if not name.startswith('demo_') or name in new['data']:continue
+                proof=json.loads(old['data'][name].attrs.get('provenance','{}'))
+                if proof.get('grasping_mode')!='physical' or proof.get('assisted_constraint_seen') is not False or proof.get('object_pose_write_count')!=0:
+                    raise ValueError('Prior physical data lacks valid zero-assistance / zero-pose-write provenance')
+                old.copy(old['data'][name],new['data'],name=name)
+            new['data'].attrs['total']=sum(len(new['data'][name]['actions']) for name in new['data'] if name.startswith('demo_'))
     with h5py.File(recorded) as file:
         demos=sorted(name for name in file['data'] if name.startswith('demo_'))
     save(physical_demonstrations=len(demos),physical_dataset=str(recorded))

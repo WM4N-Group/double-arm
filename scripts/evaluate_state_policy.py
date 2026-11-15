@@ -62,6 +62,10 @@ def main():
     else:
         net=ChunkPolicy(ckpt['obs_dim'],ckpt['history'],ckpt['horizon'],ckpt['hidden'],ckpt.get('mixtures',1)).cuda().eval()
     net.load_state_dict(ckpt['model'])
+    if ckpt.get('algorithm')=='nearest_state_memory_BC':
+        # Older checkpoints cached float32 norms; recompute consistently to avoid
+        # cancellation / tie artifacts when physical grasp enums differ.
+        net.center_norm.copy_(net.centers.square().sum(-1))
     norm={k:np.asarray(v,dtype=np.float32) for k,v in ckpt['norm'].items()}
     demos=args.demo or ckpt['val_demos']
     manifest={'mode':('closed_loop_learned_policy' if ckpt.get('algorithm')=='nearest_state_memory_BC' else 'closed_loop_neural_policy'),'algorithm':ckpt.get('algorithm','state_BC'),'planner_enabled':False,'teacher_action_reads':0,
