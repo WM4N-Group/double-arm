@@ -57,7 +57,8 @@ def main():
                 if offset>size:raise ValueError('Partial object larger than advertised object')
                 if offset<size:
                     headers={'Range':f'bytes={offset}-'} if offset else {}
-                    with requests.get(args.object_base_url.rstrip('/')+'/'+quote(item['name'],safe='/'),headers=headers,stream=True,timeout=(30,120)) as response:
+                    base=args.object_base_url if attempt<2 else 'https://storage.googleapis.com/openpi-assets'
+                    with requests.get(base.rstrip('/')+'/'+quote(item['name'],safe='/'),headers=headers,stream=True,timeout=(30,120)) as response:
                         response.raise_for_status()
                         if offset and response.status_code!=206:offset=0
                         with partial.open('ab' if offset else 'wb') as handle:
