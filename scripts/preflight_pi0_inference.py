@@ -60,7 +60,11 @@ def main():
     save()
     try:
         started = time.monotonic()
-        policy = create_trained_policy(register_config(), args.checkpoint)
+        contract_path=args.checkpoint/'assets/r1-adapter-contract.json'
+        contract=json.loads(contract_path.read_text()) if contract_path.is_file() else {}
+        representation=contract.get('action_representation','native')
+        policy = create_trained_policy(register_config(action_representation=representation), args.checkpoint)
+        report['action_representation']=representation
         save(stage='running_real_pi0_cpu_inference', load_seconds=time.monotonic()-started)
         calls = []
         for index in range(2):

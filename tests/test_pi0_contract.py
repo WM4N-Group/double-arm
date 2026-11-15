@@ -54,6 +54,28 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
 
+    def test_checkpoint_action_semantics_are_persisted_and_verified(self):
+        source=(ROOT/'scripts/run_pi0_entrypoint.py').read_text()
+        self.assertIn('capture_adapter_contract(config,root)',source)
+        self.assertIn('save_adapter_contracts(config.checkpoint_dir,contract)',source)
+        self.assertIn("'norm_stats_sha256'",source)
+        service=(ROOT/'scripts/serve_pi0_r1.py').read_text()
+        self.assertIn("contract.get('action_representation')!=args.action_representation",service)
+        self.assertIn('never interpret world targets as native deltas',service)
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from run_pi0_entrypoint import save_adapter_contracts
+        import tempfile,json
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint=Path(directory)/'19';(checkpoint/'params').mkdir(parents=True);(checkpoint/'assets').mkdir()
+            (checkpoint/'_CHECKPOINT_METADATA').write_text(json.dumps({'commit_timestamp_nsecs':1}))
+            (checkpoint/'assets/dataset').mkdir();(checkpoint/'assets/dataset/norm_stats.json').write_text('{}')
+            contract={'model':'pi0','action_representation':'absolute_base','norm_stats_asset_id':'dataset'}
+            self.assertEqual(len(save_adapter_contracts(Path(directory),contract)),1)
+            saved=json.loads((checkpoint/'assets/r1-adapter-contract.json').read_text())
+            self.assertEqual(saved['action_representation'],'absolute_base')
+            self.assertEqual(len(saved['norm_stats_sha256']),64)
+            with self.assertRaises(ValueError):save_adapter_contracts(Path(directory),{'action_representation':'native'})
+
     def test_assisted_diagnostics_cannot_be_labelled_as_physical_success(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn("choices=['physical','configured'],default='physical'",source)
@@ -66,7 +88,7 @@ class Pi0SourceContract(unittest.TestCase):
 
     def test_training_redirects_only_its_compilation_cache(self):
         source=(ROOT/'scripts/run_pi0_entrypoint.py').read_text()
-        self.assertIn("if option=='jax_compilation_cache_dir':value=str(root/'cache/jax')",source)
+        self.assertIn("if name=='jax_compilation_cache_dir':val=str(root/'cache/jax')",source)
         self.assertIn('finally:jax.config.update=original_update',source)
         self.assertIn("runpy.run_path(str(source/'scripts/train.py'),run_name='__main__')",source)
 
@@ -130,7 +152,7 @@ class Pi0SourceContract(unittest.TestCase):
         source=(ROOT/'scripts/preflight_pi0_inference.py').read_text()
         self.assertIn("os.environ.get('CUDA_VISIBLE_DEVICES') != ''",source)
         self.assertIn("os.environ.get('JAX_PLATFORMS') != 'cpu'",source)
-        self.assertIn('create_trained_policy(register_config(), args.checkpoint)',source)
+        self.assertIn('create_trained_policy(register_config(action_representation=representation), args.checkpoint)',source)
         self.assertIn('prediction = policy.infer(inputs)',source)
         self.assertIn('actions.shape != (50, 21)',source)
         self.assertNotIn("['actions'][",source)

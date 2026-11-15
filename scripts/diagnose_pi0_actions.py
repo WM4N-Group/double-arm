@@ -30,6 +30,7 @@ def main():
     if not str(args.output.resolve()).startswith('/mnt/yuanyue/double-arm/runs/'):raise ValueError('Remote report required')
     with urlopen(f'http://127.0.0.1:{args.port}/health',timeout=30) as response:health=json.load(response)
     if health.get('checkpoint')!=str(args.checkpoint) or health.get('model')!='pi0':raise ValueError('Wrong checkpoint service')
+    if health.get('action_representation','native')!='native':raise ValueError('This diagnostic compares native labels only')
     norm=json.loads((args.checkpoint/'assets/momagen/r1_tidy_table_train_v1/norm_stats.json').read_text())
     std=np.asarray(norm['norm_stats']['actions']['std'],np.float64)
     if std.shape!=(21,):raise ValueError('Wrong normalization contract')
