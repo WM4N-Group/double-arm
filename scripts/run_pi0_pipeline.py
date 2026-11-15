@@ -117,7 +117,7 @@ def main():
     if not checkpoints:save(stage='pi0_checkpoint_not_found_after_training',task_success=False);return 10
     checkpoint=max(checkpoints,key=lambda path:int(path.name))
     evaluation=c/'pi0-native-physical-evaluation'
-    code=run([sys.executable,str(script/'run_pi0_evaluation.py'),'--root',str(root),
+    code=run([py,str(script/'run_pi0_evaluation.py'),'--root',str(root),
               '--checkpoint',str(checkpoint),'--source-dataset',str(next((source/'generated').glob('*/demo.hdf5'))),
               '--training-provenance',str(train/'momagen-provenance.json'),'--output',str(evaluation),
               '--hours',str(min(2,max(.01,(deadline-time.monotonic())/3600)))],

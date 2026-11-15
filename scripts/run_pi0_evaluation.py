@@ -14,8 +14,6 @@ import signal
 import subprocess
 import sys
 import time
-import h5py
-import numpy as np
 from resource_allocation import resolve_gpu
 
 
@@ -33,6 +31,17 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--hours',type=float,default=2)
     args=p.parse_args();root=args.root;out=args.output
+    # The lightweight controller may run under system Python (no numerical
+    # dependencies). Re-exec this CPU orchestrator in the isolated openpi env;
+    # never install h5py/numpy into the simulator or workstation as a workaround.
+    expected_env=root/'envs/openpi'
+    if Path(sys.prefix).resolve()!=expected_env.resolve():
+        interpreter=expected_env/'bin/python'
+        if not interpreter.is_file():raise FileNotFoundError(interpreter)
+        print('Re-executing pi0 evaluation orchestrator in isolated openpi Python',flush=True)
+        os.execv(str(interpreter),[str(interpreter),str(Path(__file__).resolve()),*sys.argv[1:]])
+    import h5py
+    import numpy as np
     if out.exists():raise FileExistsError(out)
     if not str(out).startswith(str(root/'runs')+'/'):raise ValueError('Remote output required')
     gpu=resolve_gpu(root);out.mkdir();deadline=time.monotonic()+args.hours*3600;script=Path(__file__).resolve().parent
@@ -93,7 +102,11 @@ def main():
         free={line.split(',')[0].strip():int(line.split(',')[1].strip()) for line in query.splitlines()}
         save(pi0_warmup_completed=True,free_gpu_mib_before_simulator=free.get(gpu))
         if free.get(gpu,0)<15000:raise RuntimeError('Insufficient shared GPU memory for simulator + pi0; need another single-card scheduling/offload design, not GPU0')
-        simulation=launch([str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
+        # A bare system-Python controller does not inherit Isaac/OG asset and
+        # headless settings. Source the pinned runtime only for the simulator;
+        # the inference service keeps its separate openpi environment.
+        simulation=launch(['bash','-c','set -euo pipefail; source "$1"; shift; exec "$@"',
+            'pi0-simulator',str(script/'server_env.sh'),str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
             '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode','physical'],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)

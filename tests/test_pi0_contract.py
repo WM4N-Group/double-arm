@@ -54,6 +54,18 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
 
+    def test_evaluation_orchestrator_uses_isolated_runtime(self):
+        source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
+        self.assertIn("expected_env=root/'envs/openpi'",source)
+        self.assertIn('os.execv(str(interpreter)',source)
+        self.assertIn("str(script/'server_env.sh')",source)
+        self.assertIn('set -euo pipefail; source',source)
+        tree=ast.parse(source)
+        top_imports=[node for node in tree.body if isinstance(node,(ast.Import,ast.ImportFrom))]
+        self.assertFalse(any(isinstance(node,ast.Import) and any(alias.name in ('numpy','h5py') for alias in node.names)
+                             for node in top_imports))
+        self.assertIn("code=run([py,str(script/'run_pi0_evaluation.py')",(ROOT/'scripts/run_pi0_pipeline.py').read_text())
+
     def test_parameter_audit_is_abstract_cpu_only_and_checks_actual_partition(self):
         source=(ROOT/'scripts/audit_pi0_parameter_contract.py').read_text()
         self.assertIn("os.environ.get('JAX_PLATFORMS') != 'cpu'",source)
