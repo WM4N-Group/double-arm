@@ -38,6 +38,12 @@ c['experiment']['num_demo_to_render']=0
 c['experiment']['num_fail_demo_to_render']=0
 c['obs']['camera_names']=['agentview']
 (out/'config.json').write_text(json.dumps(c,indent=2))
+(out/'generation-request.json').write_text(json.dumps({
+    'task':task,'seed':int(os.environ.get('DATA_SEED','10')),
+    'gpu':os.environ.get('CUDA_VISIBLE_DEVICES','0'),
+    'target':int(os.environ.get('DATA_ATTEMPTS','8')),
+    'guarantee':c['experiment']['generation']['guarantee'],
+    'timeout_seconds':int(os.environ.get('DATA_TIMEOUT_SECONDS','14400'))},indent=2))
 PY
 set +e
 timeout --signal=TERM --kill-after=90s "${DATA_TIMEOUT_SECONDS:-14400}" \

@@ -7,6 +7,7 @@ each subsequent state is produced by physics following the neural actions.
 import argparse
 from collections import deque
 import json
+import os
 from pathlib import Path
 import traceback
 import h5py
@@ -14,6 +15,7 @@ import imageio.v2 as imageio
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import torch
+from policy_action_codecs import decode_world_base_goals
 from state_policy_features import add_unique_task_poses, vectorize, as_numpy
 from train_state_policy import ChunkPolicy, JOINT, GRIP, joint_anchor
 
@@ -25,25 +27,45 @@ def main():
     p.add_argument('--output',required=True,type=Path)
     p.add_argument('--demo',action='append',default=[])
     p.add_argument('--max-steps',type=int,default=4000)
+    p.add_argument('--stagnation-window',type=int,default=600)
     p.add_argument('--video-skip',type=int,default=2)
     p.add_argument('--camera-layout',choices=['follow_ego','global_ego'],default='follow_ego')
     p.add_argument('--seed',type=int,default=123)
     args=p.parse_args()
     if args.output.exists(): raise FileExistsError(args.output)
     args.output.mkdir(parents=True)
-    torch.set_num_threads(4); torch.manual_seed(args.seed); np.random.seed(args.seed)
+    torch.set_num_threads(4); torch.set_num_interop_threads(1)
+    torch.manual_seed(args.seed); np.random.seed(args.seed)
     ckpt=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
-    net=ChunkPolicy(ckpt['obs_dim'],ckpt['history'],ckpt['horizon'],ckpt['hidden']).cuda().eval()
+    policy_label='LEARNED BC / ONE-DEMO SMOKE' if ckpt.get('single_demo_smoke') else 'LEARNED BC'
+    if ckpt.get('algorithm')=='recurrent_GRU_BC':
+        from train_recurrent_policy import RecurrentPolicy
+        net=RecurrentPolicy(ckpt['obs_dim'],ckpt['hidden'],ckpt['layers']).cuda().eval()
+    elif ckpt.get('algorithm')=='rbf_kernel_BC':
+        from train_rbf_policy import RBFPolicy
+        state=ckpt['model'];net=RBFPolicy(state['centers'],state['weights'],ckpt['bandwidth'],normalized=ckpt.get('normalized_basis',False)).cuda().eval()
+    else:
+        net=ChunkPolicy(ckpt['obs_dim'],ckpt['history'],ckpt['horizon'],ckpt['hidden'],ckpt.get('mixtures',1)).cuda().eval()
     net.load_state_dict(ckpt['model'])
     norm={k:np.asarray(v,dtype=np.float32) for k,v in ckpt['norm'].items()}
     demos=args.demo or ckpt['val_demos']
     manifest={'mode':'closed_loop_neural_policy','planner_enabled':False,'teacher_action_reads':0,
               'checkpoint':str(args.checkpoint),'training_step':ckpt['step'],'camera_layout':args.camera_layout,
-              'dataset':str(args.dataset),'privileged_state':True,'episodes':[]}
+              'dataset':str(args.dataset),'privileged_state':True,'mixtures':ckpt.get('mixtures',1),'single_demo_smoke':ckpt.get('single_demo_smoke',False),'action_mode':ckpt.get('action_mode','delta_joint'),'episodes':[]}
     (args.output/'result.json').write_text(json.dumps(manifest,indent=2))
+    # Read prior explicit server-side consent; never accept new terms silently.
+    flags={}
+    license_file=Path(__file__).resolve().parent.parent/'config/licenses.local.env'
+    if license_file.is_file():
+        for line in license_file.read_text().splitlines():
+            if '=' in line:
+                key,value=line.split('=',1);flags[key.strip()]=value.strip().strip("\"'")
+    for key in ('ACCEPT_NVIDIA_EULA','ACCEPT_BEHAVIOR_DATASET_TERMS'):
+        if os.environ.get(key,flags.get(key,'NO'))!='YES':
+            raise RuntimeError(f'Explicit previously recorded consent required: {key}')
+    os.environ['OMNI_KIT_ACCEPT_EULA']='YES'
     import omnigibson as og
     from robomimic.envs.env_omnigibson import EnvOmniGibson
-    from pxr import Gf
     try: font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',16)
     except OSError: font=ImageFont.load_default()
     env=None; writer=None; failed=False
@@ -52,6 +74,7 @@ def main():
         # False avoids the upstream point-cloud policy adapter. No wrapper.reset()
         # is called: its generation-only implementation assumes a planner exists.
         env=EnvOmniGibson(env_name=meta['env_name'],**meta['env_kwargs'])
+        from pxr import Gf
         actual_grip=[int(as_numpy(env.robot.gripper_action_idx[a]).reshape(-1)[0]) for a in ('left','right')]
         if actual_grip!=GRIP: raise ValueError(f'R1 action layout mismatch: {actual_grip}')
         if env.robot.controllers['base'].motor_type!='position':
@@ -74,10 +97,11 @@ def main():
             if env.is_success()["task"]:
                 raise ValueError("Initial state already satisfies goal; invalid evaluation reset")
             obs,_=env.get_obs_IL(); obs=add_unique_task_poses(env,obs)
+            if hasattr(net,'reset_memory'):net.reset_memory()
             history=deque(maxlen=(ckpt['history']-1)*ckpt['history_stride']+1)
             predictions=deque(maxlen=ckpt['horizon'])
             trace_x=[]; trace_a=[]; base_path=[]; gripped=[False,False]
-            success=False; stable=0
+            success=False; stable=0; termination_reason='horizon'
             writer=imageio.get_writer(str(args.output/f'{demo}.mp4'),fps=30/args.video_skip,
                                        codec='libx264',quality=7,macro_block_size=2)
             report={'demo':demo,'split':'validation' if demo in ckpt['val_demos'] else 'training',
@@ -88,10 +112,15 @@ def main():
                 nx=(np.stack(past)-norm['x_mean'])/norm['x_std']
                 with torch.inference_mode(): out=net(torch.tensor(nx[None],device='cuda')).cpu().numpy()[0]
                 chunk=out*norm['y_std']+norm['y_mean']
+                if ckpt.get('action_mode')=='world_base_goal':
+                    chunk=decode_world_base_goals(chunk,as_numpy(obs['base_link_pose']),float(as_numpy(obs['base_qpos'])[2]))
+                    jaw_scores=out[:,[14,21]]
+                else:jaw_scores=out[:,GRIP]
                 prop=joint_anchor(as_numpy(obs['prop_state']))
-                chunk[:,JOINT]+=prop[None,JOINT]
-                # Gripper logits are binary classification; never average jaw widths.
-                chunk[:,GRIP]=np.where(out[:,GRIP]>0,norm['action_max'][GRIP],norm['action_min'][GRIP])
+                if ckpt.get('action_mode','delta_joint')=='delta_joint':
+                    chunk[:,JOINT]+=prop[None,JOINT]
+                # Threshold learned signed gripper scores; never average jaw widths.
+                chunk[:,GRIP]=np.where(jaw_scores>0,norm['action_max'][GRIP],norm['action_min'][GRIP])
                 predictions.append((step,chunk))
                 candidates=[]; weights=[]
                 for origin,prediction in predictions:
@@ -102,9 +131,9 @@ def main():
                 action=np.clip(action,norm['action_min'],norm['action_max'])
                 if not np.isfinite(action).all(): raise ValueError('Nonfinite network action')
                 trace_x.append(x); trace_a.append(action)
-                base_path.append(as_numpy(env.robot.get_position_orientation()[0]))
+                base_path.append(as_numpy(env.robot.get_position_orientation()[0]).copy())
                 raw_obs,reward,done,truncated,info=env.env.step(torch.tensor(action))
-                obs,_=env.get_obs_IL(di=raw_obs); obs=add_unique_task_poses(env,obs)
+                obs,_=env.get_obs_IL(di=(raw_obs, {})); obs=add_unique_task_poses(env,obs)
                 for side,key in enumerate(('grasp_left','grasp_right')):
                     gripped[side] |= int(as_numpy(obs[key]).reshape(-1)[0])==1
                 success=bool(env.is_success()['task']); stable=stable+1 if success else 0
@@ -124,16 +153,24 @@ def main():
                     frame=Image.new('RGB',(sum(i.width for i in panels),508),'#171717')
                     cursor=0
                     for im in panels: frame.paste(im,(cursor,28)); cursor+=im.width
-                    ImageDraw.Draw(frame).text((8,8),f'LEARNED BC | {demo} | step {step} | success: {success}',fill='white',font=font)
+                    ImageDraw.Draw(frame).text((8,8),f'{policy_label} | {demo} | step {step} | success: {success}',fill='white',font=font)
                     writer.append_data(np.asarray(frame))
+                    if step%200==0:frame.resize((960,508)).save(args.output/f'progress-{demo}.jpg',quality=85)
                 if step%100==0:
                     print(json.dumps({'demo':demo,'step':step,'success':success,'grasped_ever':gripped,
                           'base_position':base_path[-1].tolist()}),flush=True)
                 # Require sustained predicate success, not a single transient frame.
-                if stable>=30 or truncated or (done and not success): break
+                if stable>=30:
+                    termination_reason='sustained_success';break
+                if truncated or (done and not success):
+                    termination_reason='environment_termination';break
+                window=args.stagnation_window
+                if not success and window>0 and len(trace_x)>=window and step%100==0:
+                    if float(np.ptp(np.stack(trace_x[-window:]),axis=0).max())<0.003:
+                        termination_reason='stagnation';break
             writer.close(); writer=None
             path=np.stack(base_path)
-            report.update(steps=step+1,success=success,stable_success_frames=stable,
+            report.update(steps=step+1,success=success,stable_success_frames=stable,termination_reason=termination_reason,
                   sustained_success=stable>=30,grasped_ever=gripped,
                   base_path_length_m=float(np.linalg.norm(np.diff(path[:,:2],axis=0),axis=1).sum()),
                   base_net_displacement_m=float(np.linalg.norm(path[-1,:2]-path[0,:2])),

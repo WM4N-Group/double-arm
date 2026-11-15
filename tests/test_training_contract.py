@@ -40,11 +40,53 @@ class EvaluationContract(unittest.TestCase):
             self.assertFalse(lightweight(huge))
             self.assertTrue(lightweight(code))
 
+    def test_observation_adapter_receives_obs_info_pair(self):
+        calls=[n for n in ast.walk(self.tree) if isinstance(n,ast.Call)
+               and isinstance(n.func,ast.Attribute) and n.func.attr=='get_obs_IL']
+        kwargs=[kw.value for n in calls for kw in n.keywords if kw.arg=='di']
+        self.assertTrue(kwargs)
+        self.assertTrue(all(isinstance(v,ast.Tuple) and len(v.elts)==2 for v in kwargs))
+
+    def test_usd_import_occurs_after_environment_launch(self):
+        source=(ROOT/'scripts/evaluate_state_policy.py').read_text()
+        self.assertGreater(source.index('from pxr import Gf'),source.index('env=EnvOmniGibson('))
+
     def test_heldout_split_is_by_episode(self):
         source = (ROOT / 'scripts/train_state_policy.py').read_text()
         self.assertIn('train = [e for e in episodes if e[0] != val_name]', source)
         self.assertIn('val = [e for e in episodes if e[0] == val_name]', source)
         self.assertIn("raise ValueError('Need >=3 successful episodes", source)
+
+
+class CampaignRestartContract(unittest.TestCase):
+    def test_round_allocation_preserves_interrupted_rounds(self):
+        import tempfile
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        from continue_learning_campaign import next_round_directory
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / 'continued-round-1').mkdir()
+            sentinel = root / 'continued-round-1' / 'keep.txt'
+            sentinel.write_text('preserve')
+            (root / 'continued-round-3').mkdir()
+            index, path = next_round_directory(root)
+            self.assertEqual(index, 4)
+            self.assertTrue(path.is_dir())
+            self.assertEqual(sentinel.read_text(), 'preserve')
+            self.assertEqual(next_round_directory(root)[0], 5)
+
+    def test_generation_seed_avoids_prior_campaign_batches(self):
+        import tempfile
+        import json
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        from continue_learning_campaign import next_generation_seed
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            campaign = root/'runs/tidy-learning-campaign-old';campaign.mkdir(parents=True)
+            (campaign/'continued-gpu1-seed-400.log').touch()
+            batch = root/'runs/tidy_table-data-old';batch.mkdir()
+            (batch/'generation-request.json').write_text(json.dumps({'seed': 700}))
+            self.assertEqual(next_generation_seed(root, {'gpu1_seed':300}, {}), 800)
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('h5py'),
@@ -73,6 +115,68 @@ class StatePolicyNumerics(unittest.TestCase):
         self.assertEqual(tuple(out.shape),(2,16,21))
         out.square().mean().backward()
         self.assertTrue(all(torch.isfinite(p.grad).all() for p in model.parameters()))
+
+    def test_multimodal_policy_loss_and_decoding(self):
+        sys.path.insert(0,str(ROOT / 'scripts'))
+        import torch
+        from train_state_policy import ChunkPolicy
+        policy=ChunkPolicy(68,history=4,horizon=16,hidden=32,mixtures=3)
+        obs=torch.zeros(2,4,68);target=torch.zeros(2,16,21)
+        target[:,:,[13,20]]=1
+        loss=policy.mixture_loss(obs,target)
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue(all(p.grad is not None and torch.isfinite(p.grad).all() for p in policy.parameters()))
+        self.assertEqual(tuple(policy(obs).shape),(2,16,21))
+
+    def test_recurrent_sequence_matches_stepwise_inference_and_reset(self):
+        sys.path.insert(0,str(ROOT / 'scripts'))
+        import torch
+        from train_recurrent_policy import RecurrentPolicy
+        torch.manual_seed(3)
+        model=RecurrentPolicy(5,hidden=8,layers=2).eval()
+        x=torch.randn(1,8,5)
+        with torch.no_grad():
+            expected=model.forward_sequence(x)
+            model.reset_memory();actual=torch.cat([model(x[:,i:i+1]) for i in range(x.shape[1])],dim=1)
+            torch.testing.assert_close(actual,expected,atol=1e-6,rtol=1e-5)
+            model.reset_memory();torch.testing.assert_close(model(x[:,:1]),expected[:,:1],atol=1e-6,rtol=1e-5)
+
+    def test_world_base_goal_codec_roundtrip(self):
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import numpy as np
+        from policy_action_codecs import encode_world_base_goals, decode_world_base_goals
+        rng = np.random.default_rng(8)
+        actions = rng.normal(0, .03, size=(30, 21))
+        poses = np.zeros((30, 7));poses[:, :3] = rng.normal(size=(30, 3))
+        yaw = rng.uniform(-np.pi, np.pi, size=30)
+        poses[:, 5] = np.sin(yaw/2);poses[:, 6] = np.cos(yaw/2)
+        headings = rng.uniform(-np.pi, np.pi, size=30)
+        goals = encode_world_base_goals(actions, poses, headings)
+        self.assertEqual(goals.shape, (30, 22))
+        actual = np.concatenate([decode_world_base_goals(goals[i:i+1], poses[i], headings[i])
+                                 for i in range(len(actions))])
+        np.testing.assert_allclose(actual, actions, atol=3e-7, rtol=1e-5)
+
+    def test_normalized_kernel_forward_shape_and_finiteness(self):
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import torch
+        from train_rbf_policy import RBFPolicy
+        model = RBFPolicy(torch.randn(16, 20), torch.randn(16, 22), .7, normalized=True)
+        output = model(torch.randn(2, 4, 5))
+        self.assertEqual(tuple(output.shape), (2, 1, 22))
+        self.assertTrue(torch.isfinite(output).all())
+
+    def test_kernel_fit_is_invariant_to_training_row_order(self):
+        sys.path.insert(0,str(ROOT / 'scripts'))
+        import torch
+        from train_rbf_policy import RBFPolicy
+        torch.manual_seed(4);x=torch.randn(24,5,dtype=torch.float64);y=torch.randn(24,21,dtype=torch.float64)
+        def fit(x,y):
+            k=torch.exp(-torch.cdist(x,x).square()/(2*.7**2));k.diagonal().add_(1e-4)
+            return RBFPolicy(x,torch.linalg.solve(k,y),.7)
+        order=torch.randperm(len(x));query=torch.randn(2,1,5,dtype=torch.float64)
+        torch.testing.assert_close(fit(x,y)(query),fit(x[order],y[order])(query),atol=1e-6,rtol=1e-5)
 
 
 if __name__ == '__main__': unittest.main()

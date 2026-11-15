@@ -111,7 +111,7 @@ def main():
             if train is not None and train.poll() is not None:
                 if train.returncode!=0:
                     save(stage='failed',training='failed',error='See training.log',training_exit_status=train.returncode);return 2
-                save(training='completed',stage='waiting_for_evaluation_gpu')
+                if evaluation is None:save(training='completed',stage='waiting_for_evaluation_gpu')
                 if evaluation is None and gpu0 is not None and gpu0.poll() is not None:
                     assert snapshot and train_dir
                     evaluation=start(['timeout','--signal=TERM','--kill-after=90s','7200',sys.executable,

@@ -21,15 +21,37 @@ JOINT = list(range(3, 13)) + list(range(14, 20))
 
 
 class ChunkPolicy(nn.Module):
-    def __init__(self, obs_dim, history=4, horizon=16, hidden=512):
+    def __init__(self, obs_dim, history=4, horizon=16, hidden=512, mixtures=1):
         super().__init__()
-        self.history, self.horizon = history, horizon
+        self.history, self.horizon, self.mixtures = history, horizon, mixtures
+        if mixtures < 1: raise ValueError('mixtures must be positive')
+        output=horizon*21 if mixtures==1 else mixtures*(horizon*21)+mixtures
         self.net = nn.Sequential(nn.Linear(obs_dim * history, hidden), nn.LayerNorm(hidden), nn.SiLU(),
                                  nn.Linear(hidden, hidden), nn.LayerNorm(hidden), nn.SiLU(),
-                                 nn.Linear(hidden, hidden), nn.SiLU(), nn.Linear(hidden, horizon * 21))
+                                 nn.Linear(hidden, hidden), nn.SiLU(), nn.Linear(hidden, output))
+        if mixtures>1:
+            self.log_std=nn.Parameter(torch.full((mixtures,horizon,19),-1.0))
+
+    def components(self, obs):
+        out=self.net(obs.flatten(1))
+        if self.mixtures==1:
+            return out.reshape(-1,1,self.horizon,21),out.new_zeros((len(out),1))
+        count=self.mixtures*self.horizon*21
+        return out[:,:count].reshape(-1,self.mixtures,self.horizon,21),out[:,count:]
 
     def forward(self, obs):
-        return self.net(obs.flatten(1)).reshape(-1, self.horizon, 21)
+        means,logits=self.components(obs)
+        return means[torch.arange(len(means),device=means.device),logits.argmax(-1)]
+
+    def mixture_loss(self, obs, target):
+        means,logits=self.components(obs)
+        non_grip=[i for i in range(21) if i not in GRIP]
+        log_std=self.log_std.clamp(-3.0,1.0)
+        error=(target[:,None,:,non_grip]-means[:,:,:,non_grip])/log_std.exp()[None]
+        log_probability=(-0.5*error.square()-log_std[None]-0.9189385332046727).sum((-1,-2))
+        jaw_target=((target[:,None,:,GRIP]+1)/2).expand(-1,self.mixtures,-1,-1)
+        jaw_log_probability=-nn.functional.binary_cross_entropy_with_logits(means[:,:,:,GRIP],jaw_target,reduction='none').sum((-1,-2))
+        return -torch.logsumexp(nn.functional.log_softmax(logits,dim=-1)+log_probability+jaw_log_probability,dim=1).mean()/(self.horizon*21)
 
 
 def joint_anchor(prop):
@@ -87,6 +109,8 @@ def main():
     p.add_argument('--horizon', type=int, default=16)
     p.add_argument('--batch', type=int, default=256)
     p.add_argument('--hidden', type=int, default=512)
+    p.add_argument('--mixtures',type=int,default=1)
+    p.add_argument('--action-mode',choices=['absolute','delta_joint'],default='absolute')
     p.add_argument('--val-demo', default=None)
     p.add_argument('--device', default='cuda')
     args = p.parse_args()
@@ -106,7 +130,8 @@ def main():
         raise ValueError('Invalid split')
     tx = np.concatenate([e[1] for e in train]); ta = np.concatenate([e[2] for e in train])
     tp = np.concatenate([e[3] for e in train])
-    y = ta.copy(); y[:, JOINT] -= tp[:, JOINT]
+    y = ta.copy()
+    if args.action_mode=='delta_joint':y[:,JOINT]-=tp[:,JOINT]
     x_mean, x_std = tx.mean(0), np.maximum(tx.std(0), 0.05)
     y_mean, y_std = y.mean(0), np.maximum(y.std(0), 0.002)
     y_std[:3] = np.maximum(y.std(0)[:3], 0.002)
@@ -133,7 +158,7 @@ def main():
         past=(idx[:,None]+hist_offsets).maximum(lo[idx,None])
         future=(idx[:,None]+future_offsets).minimum(hi[idx,None])
         target=a[future].clone()
-        target[:,:,JOINT]-=prop[idx][:,None,JOINT]
+        if args.action_mode=='delta_joint':target[:,:,JOINT]-=prop[idx][:,None,JOINT]
         target=(target-norm_t['y_mean'])/norm_t['y_std']
         return (x[past]-norm_t['x_mean'])/norm_t['x_std'],target
 
@@ -142,10 +167,12 @@ def main():
         grip=nn.functional.binary_cross_entropy_with_logits(pred[:,:,GRIP],(target[:,:,GRIP]+1)/2)
         return reg + grip * 0.25
 
-    model=ChunkPolicy(len(x_mean),args.history,args.horizon,args.hidden).to(device)
+    model=ChunkPolicy(len(x_mean),args.history,args.horizon,args.hidden,args.mixtures).to(device)
+    def training_loss(x,target):
+        return model.mixture_loss(x,target) if args.mixtures>1 else loss_fn(model(x),target)
     opt=torch.optim.AdamW(model.parameters(),lr=3e-4,weight_decay=1e-4)
     manifest={'dataset':str(args.dataset.resolve()),'dataset_sha256':digest(args.dataset),
-              'algorithm':'state_history_chunk_BC','privileged_state':True,'teacher_in_evaluation':False,
+              'algorithm':'state_history_chunk_BC' if args.mixtures==1 else 'state_history_chunk_GMM_BC','privileged_state':True,'teacher_in_evaluation':False,'action_mode':args.action_mode,
               'train_demos':[e[0] for e in train],'val_demos':[val_name],
               'episode_lengths':{e[0]:len(e[1]) for e in episodes},'keys':keys,
               'arguments':{k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},
@@ -155,13 +182,13 @@ def main():
     best=float('inf'); start=time.time()
     with (args.output/'metrics.jsonl').open('w',buffering=1) as log:
         for step in range(1,args.steps+1):
-            model.train(); x,target=batch(tr); pred=model(x); loss=loss_fn(pred,target)
+            model.train(); x,target=batch(tr); loss=training_loss(x,target)
             opt.zero_grad(set_to_none=True); loss.backward(); nn.utils.clip_grad_norm_(model.parameters(),1.)
             opt.step()
             if step==1 or step%250==0:
                 model.eval()
                 with torch.no_grad():
-                    vl=float(torch.stack([loss_fn(model(bx),by) for bx,by in [batch(va) for _ in range(8)]]).mean())
+                    vl=float(torch.stack([training_loss(bx,by) for bx,by in [batch(va) for _ in range(8)]]).mean())
                 with torch.no_grad():
                     vx,vy=batch(va);vp=model(vx)
                     physical_error=(vp-vy)*norm_t['y_std']
@@ -173,8 +200,8 @@ def main():
                         'val_gripper_accuracy':grip_accuracy}
                 log.write(json.dumps(record)+'\n'); print(json.dumps(record),flush=True)
                 checkpoint={'model':model.state_dict(),'obs_dim':len(x_mean),'history':args.history,
-                     'history_stride':args.history_stride,'horizon':args.horizon,'hidden':args.hidden,
-                     'norm':{k:v.tolist() for k,v in norm.items()},'keys':keys,'env_args':meta,
+                     'history_stride':args.history_stride,'horizon':args.horizon,'hidden':args.hidden,'mixtures':args.mixtures,
+                     'norm':{k:v.tolist() for k,v in norm.items()},'keys':keys,'action_mode':args.action_mode,'env_args':meta,
                      'train_demos':manifest['train_demos'],'val_demos':[val_name],
                      'step':step,'val_loss':vl,'dataset_sha256':manifest['dataset_sha256']}
                 if vl<best:

@@ -63,13 +63,14 @@ def main():
     sheet=Image.new('RGB',(width*3,2*(height+24)),'#161616')
     for i,image in enumerate(thumbs):sheet.paste(image,((i%3)*width,(i//3)*(height+24)))
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
-    review={'task':manifest['env_args']['env_name'],'method':'learned state-history action-chunk BC',
-          'privileged_state':True,'rendering_mode':'closed_loop_neural_policy',
+    review={'task':manifest['env_args']['env_name'],'method':manifest['algorithm'],
+          'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
+          'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':'closed_loop_neural_policy',
           'policy_training':'completed','planner_enabled':False,'teacher_action_reads':0,
           'task_success':episode.get('sustained_success',False),'episode':episode,
           'source_video':str(source),'checkpoint':result['checkpoint'],
           'checkpoint_sha256':sha256_file(result['checkpoint']),'training_dataset_sha256':manifest['dataset_sha256'],
-          'video':video,'caveat':'Generated source distribution, not a new-scene generalization claim. Single active arm R1 task.'}
+          'video':video,'caveat':('Explicit single-demonstration overfit smoke test, not a generalization claim. Single active arm R1 task.' if manifest.get('single_demo_smoke') else 'Generated source distribution, not a new-scene generalization claim. Single active arm R1 task.')}
     (args.output/'review.json').write_text(json.dumps(review,indent=2))
     print(json.dumps(review,indent=2),flush=True)
 
