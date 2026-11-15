@@ -24,7 +24,8 @@ while pathlib.Path(f'/proc/{pid}/cmdline').exists():
     time.sleep(10)
 (c/'grasp-audit-status.json').write_text(json.dumps({'stage':'running_grasp_counterfactual','started_at':time.time()},indent=2))
 PY
-export CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
+ASSIGNED_GPU=$(python "$S/resource_allocation.py" --root "$DOUBLE_ARM_ROOT")
+export CUDA_VISIBLE_DEVICES="$ASSIGNED_GPU" OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
 set +e
 timeout --signal=TERM --kill-after=90s 2400 python -u "$S/audit_grasp_physics.py" \
  --policy-run "$C/state-memory-world-goal" --output "$C/grasp-physics-counterfactual" --max-steps 1100

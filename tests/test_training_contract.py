@@ -112,9 +112,63 @@ class PhysicalGraspContract(unittest.TestCase):
         self.assertIn("result.get('assisted_constraint_seen') is not False",source)
 
 
+class SingleGPUAllocationContract(unittest.TestCase):
+    def test_only_the_allocated_gpu_can_be_selected(self):
+        import tempfile,json
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from resource_allocation import resolve_gpu,require_dual_gpu_allocation
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory);(root/'runs').mkdir()
+            (root/'runs/RESOURCE_ALLOCATION.json').write_text(json.dumps({'max_gpu_count':1,'allowed_gpu_index':1,'allowed_gpu_uuid':'GPU-owned'}))
+            self.assertEqual(resolve_gpu(root),'GPU-owned')
+            self.assertEqual(resolve_gpu(root,'1'),'GPU-owned')
+            self.assertEqual(resolve_gpu(root,'GPU-owned'),'GPU-owned')
+            for requested in ('0','0,1','GPU-reserved'):
+                with self.assertRaises(ValueError):resolve_gpu(root,requested)
+            with self.assertRaises(ValueError):require_dual_gpu_allocation(root)
+
+    def test_object_pose_audit_observes_but_does_not_move_objects(self):
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from object_pose_audit import ObjectPoseAudit
+        class Object:
+            position=0
+            def set_position_orientation(self,position):self.position=position
+        obj=Object();audit=ObjectPoseAudit({'cup':obj})
+        self.assertEqual(obj.position,0);self.assertEqual(audit.events,[])
+        audit.step=7;obj.set_position_orientation(position=3)
+        self.assertEqual(obj.position,3);self.assertEqual(audit.events[0]['step'],7)
+        audit.close();obj.set_position_orientation(position=4)
+        self.assertEqual(len(audit.events),1)
+
+
 @unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('h5py'),
                      'Numerical tests are server-only; no local training dependencies')
 class StatePolicyNumerics(unittest.TestCase):
+    def test_physical_success_writer_keeps_only_one_reset_state(self):
+        import tempfile,json
+        import numpy as np
+        import h5py
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from physical_demo_writer import append_physical_success
+        from train_state_policy import load_episodes
+        n=40;obs={'prop_state':np.zeros((n,21)),'prop_eef_basepose':np.zeros((n,38)),
+            'base_link_pose':np.zeros((n,7)),'base_qpos':np.zeros((n,3)),
+            'grasp_left':np.ones((n,1)),'grasp_right':-np.ones((n,1)),
+            'task::teacup.n.02_1':np.zeros((n,7))}
+        report={'sustained_success':True,'grasped_ever':[True,False],'base_path_length_m':1.0}
+        proof={'grasping_mode':'physical','assisted_constraint_seen':False,'object_pose_write_count':0}
+        with tempfile.TemporaryDirectory() as directory:
+            output=pathlib.Path(directory)/'physical.hdf5'
+            with self.assertRaises(ValueError):
+                append_physical_success(output,'demo_0',np.zeros(12),obs,np.zeros((n,21)),{'env_name':'task'},report,{**proof,'grasping_mode':'assisted'})
+            self.assertFalse(output.exists())
+            append_physical_success(output,'demo_0',np.zeros(12),obs,np.zeros((n,21)),{'env_name':'task'},report,proof)
+            with h5py.File(output) as file:
+                self.assertEqual(file['data/demo_0/initial_state'].shape,(12,))
+                self.assertNotIn('states',file['data/demo_0'])
+                self.assertEqual(len(file['data/demo_0/actions']),n)
+            episodes,_,_=load_episodes(output);self.assertEqual(len(episodes),1)
+
     def test_network_and_unique_feature_schema(self):
         sys.path.insert(0, str(ROOT / 'scripts'))
         import numpy as np

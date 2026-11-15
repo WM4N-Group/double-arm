@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 import torch
 from policy_action_codecs import decode_world_base_goals
 from grasping_validation import activate_physical_after_reset
+from object_pose_audit import ObjectPoseAudit
 from state_policy_features import add_unique_task_poses, vectorize, as_numpy
 from train_state_policy import ChunkPolicy, JOINT, GRIP, joint_anchor
 
@@ -33,9 +34,14 @@ def main():
     p.add_argument('--camera-layout',choices=['follow_ego','global_ego'],default='follow_ego')
     p.add_argument('--seed',type=int,default=123)
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='configured')
+    p.add_argument('--save-success-data',type=Path)
+    p.add_argument('--no-video',action='store_true')
+    p.add_argument('--target-successes',type=int,default=0)
     args=p.parse_args()
     if args.output.exists(): raise FileExistsError(args.output)
+    if args.target_successes<0 or (args.target_successes and not args.save_success_data):raise ValueError('Success target requires physical data output')
     args.output.mkdir(parents=True)
+    if args.save_success_data and args.save_success_data.exists():raise FileExistsError(args.save_success_data)
     torch.set_num_threads(4); torch.set_num_interop_threads(1)
     torch.manual_seed(args.seed); np.random.seed(args.seed)
     ckpt=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
@@ -77,7 +83,7 @@ def main():
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     try: font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',16)
     except OSError: font=ImageFont.load_default()
-    env=None; writer=None; failed=False
+    env=None; writer=None; failed=False; pose_audit=None
     try:
         meta=ckpt['env_args']; meta['env_kwargs']['init_curobo']=False
         # False avoids the upstream point-cloud policy adapter. No wrapper.reset()
@@ -88,6 +94,9 @@ def main():
         manifest['configured_grasping_mode']=configured_grasp_mode
         manifest['grasping_mode']='physical' if args.grasping_mode=='physical' else configured_grasp_mode
         manifest['assisted_constraint_seen']=False
+        manifest['object_pose_write_count']=0
+        manifest['upstream_finger_friction']=4.0
+        manifest['physical_parameters_calibrated_to_real_robot']=False
         policy_label+=' / '+manifest['grasping_mode'].upper()+' GRASP'
         actual_grip=[int(as_numpy(env.robot.gripper_action_idx[a]).reshape(-1)[0]) for a in ('left','right')]
         if actual_grip!=GRIP: raise ValueError(f'R1 action layout mismatch: {actual_grip}')
@@ -97,11 +106,13 @@ def main():
         mat=Gf.Matrix4d().SetLookAt(Gf.Vec3d(*camera_pos.tolist()),Gf.Vec3d(5.5,0.0,0.8),Gf.Vec3d(0,0,1)).GetInverse()
         quat=mat.ExtractRotationQuat(); imag=quat.GetImaginary()
         camera_quat=torch.tensor([imag[0],imag[1],imag[2],quat.GetReal()],dtype=torch.float32)
+        saved_success_count=0
         for demo in demos:
             env.robot._grasping_mode=configured_grasp_mode
             with h5py.File(args.dataset,'r') as f:
-                initial=f[f'data/{demo}/states'][0]
-                ref_len=len(f[f'data/{demo}/states'])
+                group=f[f'data/{demo}']
+                initial=group['initial_state'][()] if 'initial_state' in group else group['states'][0]
+                ref_len=len(group['obs/prop_state'])
             env.env.reset()
             if int(og.sim.dump_state(serialized=True).numel())!=len(initial):
                 raise ValueError('Serialized scene state layout mismatch')
@@ -117,12 +128,18 @@ def main():
             history=deque(maxlen=(ckpt['history']-1)*ckpt['history_stride']+1)
             predictions=deque(maxlen=ckpt['horizon'])
             trace_x=[]; trace_a=[]; base_path=[]; gripped=[False,False]
+            record_keys=list(dict.fromkeys(ckpt['keys']+['prop_state','base_link_pose','base_qpos']))
+            recorded_observations={key:[] for key in record_keys}
+            pose_audit=ObjectPoseAudit(env.env.task.object_scope)
             success=False; stable=0; termination_reason='horizon'
-            writer=imageio.get_writer(str(args.output/f'{demo}.mp4'),fps=30/args.video_skip,
+            writer=None if args.no_video else imageio.get_writer(str(args.output/f'{demo}.mp4'),fps=30/args.video_skip,
                                        codec='libx264',quality=7,macro_block_size=2)
             report={'demo':demo,'split':'validation' if demo in ckpt['val_demos'] else 'training',
                     'initial_state_load_count':1,'reference_length':ref_len,'success':False}
             for step in range(args.max_steps):
+                pose_audit.step=step
+                if args.save_success_data:
+                    for key in record_keys:recorded_observations[key].append(as_numpy(obs[key]).reshape(-1).copy())
                 x=vectorize(obs,ckpt['keys']); history.append(x)
                 hs=list(history); past=[hs[max(0,len(hs)-1-j*ckpt['history_stride'])] for j in reversed(range(ckpt['history']))]
                 nx=(np.stack(past)-norm['x_mean'])/norm['x_std']
@@ -156,7 +173,7 @@ def main():
                 for side,key in enumerate(('grasp_left','grasp_right')):
                     gripped[side] |= int(as_numpy(obs[key]).reshape(-1)[0])==1
                 success=bool(env.is_success()['task']); stable=stable+1 if success else 0
-                if step%args.video_skip==0:
+                if not args.no_video and step%args.video_skip==0:
                     og.sim.viewer_camera.set_position_orientation(position=camera_pos,orientation=camera_quat)
                     og.sim.render()
                     if args.camera_layout=='follow_ego':
@@ -187,22 +204,38 @@ def main():
                 if not success and window>0 and len(trace_x)>=window and step%100==0:
                     if float(np.ptp(np.stack(trace_x[-window:]),axis=0).max())<0.003:
                         termination_reason='stagnation';break
-            writer.close(); writer=None
+            if writer:writer.close()
+            writer=None
+            pose_events=list(pose_audit.events);pose_audit.close();pose_audit=None
+            manifest['object_pose_write_count']+=len(pose_events)
             path=np.stack(base_path)
             report.update(steps=step+1,success=success,stable_success_frames=stable,termination_reason=termination_reason,
                   sustained_success=stable>=30,grasped_ever=gripped,
                   base_path_length_m=float(np.linalg.norm(np.diff(path[:,:2],axis=0),axis=1).sum()),
                   base_net_displacement_m=float(np.linalg.norm(path[-1,:2]-path[0,:2])),
-                  final_goal_status=str(env.env.task._termination_conditions['predicate'].goal_status))
+                  final_goal_status=str(env.env.task._termination_conditions['predicate'].goal_status),
+                  grasping_mode=env.robot.grasping_mode,object_pose_write_count=len(pose_events))
             np.savez_compressed(args.output/f'{demo}-trace.npz',observations=np.stack(trace_x),actions=np.stack(trace_a),base_positions=path)
+            if args.save_success_data and report['sustained_success'] and any(gripped) and report['base_path_length_m']>.5:
+                from physical_demo_writer import append_physical_success
+                provenance={'policy_checkpoint':str(args.checkpoint),'source_reset':demo,
+                    'grasping_mode':env.robot.grasping_mode,'assisted_constraint_seen':manifest['assisted_constraint_seen'],
+                    'object_pose_write_count':len(pose_events),'upstream_finger_friction':4.0,
+                    'physical_parameters_calibrated_to_real_robot':False}
+                append_physical_success(args.save_success_data,demo,initial,
+                    {key:np.stack(value) for key,value in recorded_observations.items()},trace_a,meta,report,provenance)
+                report['saved_physical_demonstration']=str(args.save_success_data)
+                saved_success_count+=1
             manifest['episodes'].append(report)
             (args.output/'result.json').write_text(json.dumps(manifest,indent=2))
             print('EPISODE_RESULT',json.dumps(report),flush=True)
+            if args.target_successes and saved_success_count>=args.target_successes:break
     except BaseException:
         failed=True; traceback.print_exc()
         manifest['error']='Evaluation failed; inspect evaluation.log; no task success claimed.'
         (args.output/'result.json').write_text(json.dumps(manifest,indent=2))
     finally:
+        if pose_audit:pose_audit.close()
         if writer: writer.close()
         try: og.shutdown()
         except SystemExit: pass

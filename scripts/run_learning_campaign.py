@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from resource_allocation import require_dual_gpu_allocation
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -41,6 +42,7 @@ def main():
     p.add_argument('--gpu0-pid',type=int)
     p.add_argument('--extra-run-dir',action='append',default=[],type=Path)
     a=p.parse_args()
+    require_dual_gpu_allocation(a.root)
     if bool(a.gpu0_run)!=bool(a.gpu0_pid):p.error('--gpu0-run and --gpu0-pid must be supplied together')
     if not str(a.root).startswith('/mnt/'): raise ValueError('Server persistent root required')
     script=Path(__file__).resolve().parent

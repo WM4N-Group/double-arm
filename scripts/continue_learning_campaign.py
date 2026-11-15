@@ -16,6 +16,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from resource_allocation import require_dual_gpu_allocation
 
 
 def read(path,default=None):
@@ -56,6 +57,7 @@ def main():
     if (root/'runs/USER_PAUSED.json').exists():
         print('Project paused by user; no server workloads will start',flush=True)
         return 0
+    require_dual_gpu_allocation(root)
     if not str(c).startswith(str(root/'runs')+'/'):raise ValueError('Remote campaign path required')
     lock=(c/'continuation.lock').open('a')
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -105,7 +107,7 @@ def main():
     def publish_if_success(policy):
         result=read(policy/'evaluation/result.json',{})
         if result.get('mode')!='closed_loop_neural_policy' or result.get('planner_enabled') is not False or result.get('teacher_action_reads')!=0:return False
-        if result.get('grasping_mode')!='physical' or result.get('assisted_constraint_seen') is not False:return False
+        if result.get('grasping_mode')!='physical' or result.get('assisted_constraint_seen') is not False or result.get('object_pose_write_count')!=0:return False
         candidates=[e for e in result.get('episodes',[]) if e.get('sustained_success')
              and any(e.get('grasped_ever',[])) and e.get('base_path_length_m',0)>0.5
              and e.get('initial_state_load_count')==1]

@@ -5,14 +5,15 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/server_env.sh"
 CAMPAIGN=${1:?Usage: run_secondary_policy.sh /absolute/campaign}
 [[ $CAMPAIGN == "$DOUBLE_ARM_ROOT/runs/"* ]] || exit 2
-export CUDA_VISIBLE_DEVICES=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4
+ASSIGNED_GPU=$(python "$SCRIPT_DIR/resource_allocation.py" --root "$DOUBLE_ARM_ROOT")
+export CUDA_VISIBLE_DEVICES="$ASSIGNED_GPU" OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4
 DEADLINE=$((SECONDS+7200))
 while [[ ! -f "$CAMPAIGN/training-snapshot.hdf5" ]]; do
  [[ $SECONDS -lt $DEADLINE ]] || exit 124
  sleep 15
 done
 while true; do
- FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 1 | tr -d ' ')
+ FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "$ASSIGNED_GPU" | tr -d ' ')
  [[ $FREE -ge 1500 ]] && break
  [[ $SECONDS -lt $DEADLINE ]] || exit 124
  sleep 15

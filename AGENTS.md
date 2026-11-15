@@ -11,8 +11,10 @@
 - Distinguish installed dependencies, successful simulator launch, successful demo generation, and successful policy training in status reports. Do not claim success from package installation alone.
 - Do not accept NVIDIA or BEHAVIOR dataset terms on the user's behalf. BEHAVIOR assets are restricted to non-commercial academic research; obtain explicit confirmation before setting acceptance flags.
 
-## User-requested server pause (2026-11-15)
+## Current server allocation (resumed 2026-11-15)
 
-- The user explicitly requested release of server resources for higher-priority tasks. Do not restart this project's simulation, generation, training, evaluation, or audit jobs until the user explicitly resumes them.
-- A generic automation heartbeat is not permission to resume. The `double-arm-46207` automation is paused.
-- Remote `runs/USER_PAUSED.json` and campaign `user-paused.json` record the pause. Preserve saved datasets, checkpoints, videos, and logs. After explicit user resumption, archive the pause marker before starting a new bounded campaign.
+- The user resumed this project with **one GPU only**. We explicitly selected physical GPU1 (second card), UUID `GPU-50e5d38d-2825-e379-f537-7f0bf4609aba`; GPU0 is reserved for higher-priority work.
+- Never restore the old dual-GPU controller or launch a job on GPU0. Pin all project GPU jobs to the allowed UUID with `CUDA_VISIBLE_DEVICES`; do not expand to another card when it is idle.
+- Remote `runs/RESOURCE_ALLOCATION.json` records the allocation. Old user-pause markers were archived after explicit resumption; saved data, checkpoints and logs remain intact.
+- Keep automatic notifications quiet unless a meaningful new completion, failure, or required user action occurs. Do not treat a generic heartbeat as permission to expand GPU allocation.
+- Grasp acceptance must distinguish assisted attachment from physical contact/friction. Original MoMaGen uses gripper friction 4.0; do not claim physical grasp results are calibrated to real hardware.

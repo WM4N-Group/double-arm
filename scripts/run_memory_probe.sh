@@ -39,7 +39,8 @@ path=pathlib.Path(sys.argv[1])/'memory-probe-status.json'
 report=json.loads(path.read_text());report.update(stage='evaluating_memory_policy',updated_at=time.time())
 path.write_text(json.dumps(report,indent=2))
 PY
-EVAL_GPU=0 EVAL_DEMOS='demo_1 demo_0' EVAL_MAX_STEPS=3500 EVAL_TIMEOUT_SECONDS=7200 \
+ASSIGNED_GPU=$(python "$S/resource_allocation.py" --root "$DOUBLE_ARM_ROOT")
+EVAL_GPU="$ASSIGNED_GPU" EVAL_DEMOS='demo_1 demo_0' EVAL_MAX_STEPS=3500 EVAL_TIMEOUT_SECONDS=7200 \
  bash "$S/run_policy_evaluation.sh" "$C/state-memory-world-goal"
 python - "$C" <<'PY'
 import pathlib,json,sys,time

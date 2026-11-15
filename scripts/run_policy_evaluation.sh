@@ -6,7 +6,8 @@ source "$SCRIPT_DIR/server_env.sh"
 POLICY_RUN=${1:?Usage: run_policy_evaluation.sh /absolute/policy/run}
 [[ $POLICY_RUN == "$DOUBLE_ARM_ROOT/runs/"* ]] || exit 2
 [[ ! -e "$POLICY_RUN/evaluation" ]] || { echo 'Evaluation output exists; preserve/rename it explicitly before retrying.' >&2; exit 2; }
-export CUDA_VISIBLE_DEVICES=${EVAL_GPU:-0} OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
+ASSIGNED_GPU=$(python "$SCRIPT_DIR/resource_allocation.py" --root "$DOUBLE_ARM_ROOT" --requested "${EVAL_GPU:-}")
+export CUDA_VISIBLE_DEVICES="$ASSIGNED_GPU" OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
 DATASET=$(python - "$POLICY_RUN/manifest.json" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1]))['dataset'])
@@ -26,7 +27,7 @@ set +e
 timeout --signal=TERM --kill-after=90s "${EVAL_TIMEOUT_SECONDS:-7200}" \
  python -u "$SCRIPT_DIR/evaluate_state_policy.py" --dataset "$DATASET" \
  --checkpoint "$POLICY_RUN/${CHECKPOINT_NAME:-best.pt}" --output "$POLICY_RUN/evaluation" \
- "${DEMO_ARGS[@]}" --camera-layout "${EVAL_CAMERA_LAYOUT:-global_ego}" --grasping-mode "${EVAL_GRASPING_MODE:-physical}" --max-steps "${EVAL_MAX_STEPS:-4000}" 2>&1 | tee "$POLICY_RUN/evaluation.log"
+ "${DEMO_ARGS[@]}" --camera-layout "${EVAL_CAMERA_LAYOUT:-follow_ego}" --grasping-mode "${EVAL_GRASPING_MODE:-physical}" --max-steps "${EVAL_MAX_STEPS:-4000}" 2>&1 | tee "$POLICY_RUN/evaluation.log"
 STATUS=${PIPESTATUS[0]}
 set -e
 python - "$POLICY_RUN" "$STATUS" <<'PY'

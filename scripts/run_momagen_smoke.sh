@@ -8,7 +8,8 @@ if [[ ${ACCEPT_NVIDIA_EULA:-NO} != YES || ${ACCEPT_BEHAVIOR_DATASET_TERMS:-NO} !
     exit 3
 fi
 export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+ASSIGNED_GPU=$(python "$SCRIPT_DIR/resource_allocation.py" --root "$DOUBLE_ARM_ROOT" --requested "${CUDA_VISIBLE_DEVICES:-}")
+export CUDA_VISIBLE_DEVICES="$ASSIGNED_GPU"
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/pick_cup-smoke-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 printf 'Run directory: %s\n' "$RUN_DIR"
 bash "$SCRIPT_DIR/ensure_runtime_files.sh"

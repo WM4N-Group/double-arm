@@ -17,7 +17,8 @@ TASK=${TASK:-tidy_table}
 case "$TASK" in pick_cup|tidy_table|dishes_away|clean_pan) ;; *) echo 'Unknown official core task' >&2; exit 2;; esac
 TARGET_SUCCESSES=${TARGET_SUCCESSES:-1}
 [[ $TARGET_SUCCESSES =~ ^[1-9][0-9]*$ ]] || exit 2
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+ASSIGNED_GPU=$(python "$SCRIPT_DIR/resource_allocation.py" --root "$DOUBLE_ARM_ROOT" --requested "${CUDA_VISIBLE_DEVICES:-}")
+export CUDA_VISIBLE_DEVICES="$ASSIGNED_GPU"
 export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/${TASK}-official-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 echo "RUN_DIR=$RUN_DIR"

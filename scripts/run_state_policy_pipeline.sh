@@ -3,6 +3,7 @@
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/server_env.sh"
+python "$SCRIPT_DIR/resource_allocation.py" --root "$DOUBLE_ARM_ROOT" --require-dual
 GENERATION_RUN=${1:?Usage: run_state_policy_pipeline.sh /absolute/generation/run}
 [[ $GENERATION_RUN == "$DOUBLE_ARM_ROOT/runs/"* && -d $GENERATION_RUN ]] || exit 2
 if [[ -f "$SCRIPT_DIR/../config/licenses.local.env" ]]; then

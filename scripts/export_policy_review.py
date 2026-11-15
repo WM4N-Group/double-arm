@@ -20,6 +20,7 @@ def main():
     p.add_argument('--output',required=True,type=Path)
     p.add_argument('--demo')
     p.add_argument('--require-success',action='store_true')
+    p.add_argument('--require-physical',action='store_true')
     args=p.parse_args()
     train=json.loads((args.policy_run/'training-result.json').read_text())
     result=json.loads((args.policy_run/'evaluation/result.json').read_text())
@@ -28,6 +29,8 @@ def main():
     if result.get('mode') not in ('closed_loop_neural_policy','closed_loop_learned_policy') or result.get('planner_enabled') is not False or result.get('teacher_action_reads')!=0:
         raise ValueError('Not a teacher-free closed-loop policy evaluation')
     grasping_mode=result.get('grasping_mode',manifest['env_args']['env_kwargs']['robots'][0].get('grasping_mode','unspecified'))
+    if args.require_physical and (grasping_mode!='physical' or result.get('assisted_constraint_seen') is not False or result.get('object_pose_write_count')!=0):
+        raise ValueError('No explicit physical-only / zero-assisted-constraint evidence')
     episodes=result.get('episodes',[])
     candidates=[e for e in episodes if e['demo']==args.demo] if args.demo else sorted(episodes,
            key=lambda e:(e.get('sustained_success',False),e.get('split')=='validation'),reverse=True)
@@ -71,12 +74,14 @@ def main():
           'training_method':manifest.get('training_method',manifest['algorithm']),'privileged_state':True,'single_demo_smoke':manifest.get('single_demo_smoke',False),
           'train_demos':manifest['train_demos'],'val_demos':manifest['val_demos'],'rendering_mode':result['mode'],
           'policy_training':'completed','planner_enabled':False,'teacher_action_reads':0,
-          'grasping_mode':grasping_mode,'assisted_constraint_seen':result.get('assisted_constraint_seen'),'task_success':episode.get('sustained_success',False),'episode':episode,
+          'grasping_mode':grasping_mode,'assisted_constraint_seen':result.get('assisted_constraint_seen'),'object_pose_write_count':result.get('object_pose_write_count'),'upstream_finger_friction':result.get('upstream_finger_friction'),'physical_parameters_calibrated_to_real_robot':False,'task_success':episode.get('sustained_success',False),'episode':episode,
           'source_video':str(source),'checkpoint':result['checkpoint'],
           'checkpoint_sha256':sha256_file(result['checkpoint']),'training_dataset_sha256':manifest['dataset_sha256'],
           'video':video,'caveat':('Explicit single-demonstration overfit smoke test, not a generalization claim. Single active arm R1 task.' if manifest.get('single_demo_smoke') else 'Generated source distribution, not a new-scene generalization claim. Single active arm R1 task.')}
     if manifest['algorithm']=='nearest_state_memory_BC':
         review['caveat']='Nonparametric nearest-state memory BC, NOT a gradient-trained neural policy. '+review['caveat']
+    if grasping_mode=='physical':
+        review['caveat']+=' Original task gripper friction is 4.0; not calibrated to real hardware.'
     if grasping_mode!='physical':
         review['caveat']+=' Assisted grasp attachment enabled; NOT verified as pure contact/friction grasping.'
     (args.output/'review.json').write_text(json.dumps(review,indent=2))
