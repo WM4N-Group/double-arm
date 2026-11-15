@@ -196,6 +196,8 @@ class Pi0Numerics(unittest.TestCase):
         native=np.zeros((4,21));native[:,:3]=[[.003,-.002,.001],[.01,.005,-.001],[0,0,.03],[0,0,.02]]
         native[:,3:]=np.random.default_rng(1).normal(size=(4,18))
         targets=native_to_absolute_base(native,poses)
+        self.assertTrue(np.all((targets[:,2]>=-np.pi)&(targets[:,2]<np.pi)))
+        np.testing.assert_allclose(targets[-1],native_to_absolute_base(native[-1],poses[-1]),atol=1e-6)
         np.testing.assert_allclose(absolute_base_to_native(targets,poses),native,atol=1e-6)
         pose=poses[0].copy();target=targets[0].copy();pose[:2]=target[:2]
         pose[5]=np.sin(target[2]/2);pose[6]=np.cos(target[2]/2)

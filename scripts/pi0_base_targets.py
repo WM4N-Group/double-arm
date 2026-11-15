@@ -24,8 +24,10 @@ def native_to_absolute_base(actions,poses):
     rotation,yaw=root_rotation_xy_and_yaw(poses)
     result=actions.copy()
     result[...,:2]=poses[...,:2]+np.einsum('...ij,...j->...i',rotation,actions[...,:2])
-    if yaw.ndim: yaw=np.unwrap(yaw)
-    result[...,2]=yaw+actions[...,2]
+    # One fixed heading branch for ALL episodes. Per-episode unwrap would
+    # assign different 2*pi aliases to identical visual/robot states, although
+    # the VLA has no trajectory-history input to distinguish those aliases.
+    result[...,2]=(yaw+actions[...,2]+np.pi)%(2*np.pi)-np.pi
     return result.astype(np.float32)
 
 

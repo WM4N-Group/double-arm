@@ -133,7 +133,7 @@ def main():
             '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
             '--execute-steps',str(execute_steps),'--action-representation',args.action_representation],out/'physical-rollout.log')
-        save(stage='evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
+        save(stage='evaluating_real_visual_pi0_author_config' if args.grasping_mode=='configured' else 'evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')
             if server.poll() is not None:raise RuntimeError('Pi0 service exited during rollout; no fallback allowed')

@@ -20,7 +20,7 @@ def main():
     args=parser.parse_args()
     if not str(args.output.resolve()).startswith('/mnt/yuanyue/double-arm/data/'):raise ValueError('Remote output required')
     args.output.mkdir(exist_ok=False)
-    report={'label_encoding':'world XYZ-plane XY + unwrapped world yaw base targets, remaining native arm/trunk/gripper commands',
+    report={'label_encoding':'world XYZ-plane XY + wrapped world yaw [-pi, pi) base targets, remaining native arm/trunk/gripper commands',
         'model_inputs_unchanged':'Real head + both wrist RGB, original 21D proprioception, instruction; NO odometry added to VLA inputs',
         'odometry_scope':'Current robot root pose used only for offline label construction and low-level target tracking',
         'future_observations_used':False,'object_poses_used':False,'source_grasping':'author assisted attachment',

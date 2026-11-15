@@ -117,7 +117,8 @@ def main():
         save(stage='prepared_visual_dataset_missing');return 13
     if a.action_representation=='absolute_base':
         derived=root/'data/pi0/absolute-base-v2/manifest.json';labels=read(derived,{})
-        if labels.get('splits',{}).get('train',{}).get('frames')!=provenance['total_frames']:
+        if (labels.get('splits',{}).get('train',{}).get('frames')!=provenance['total_frames']
+            or 'wrapped world yaw [-pi, pi)' not in labels.get('label_encoding','')):
             save(stage='absolute_base_label_contract_failed');return 14
         save(derived_label_manifest=str(derived),base_odometry_scope='offline labels + low-level controller only; not VLA inputs')
     save(train_demonstrations=provenance.get('num_episodes'),train_frames=provenance.get('total_frames'),visual_dataset=str(train),generation_run=str(generation))
@@ -130,8 +131,9 @@ def main():
     code=run([py,str(script/'run_pi0_entrypoint.py'),'train'],'pi0_lora_memory_smoke',True,{'PI0_TRAIN_STEPS':'20','PI0_EXP_NAME':c.name+'-smoke'})
     if code:save(stage='pi0_lora_smoke_failed',exit_status=code,error='Check memory/API/adapter; never expand to reserved GPU0');return 8
     save(pi0_gradient_smoke='completed_20_updates',training='smoke_completed_not_task_success')
+    save(training='in_progress')
     code=run([py,str(script/'run_pi0_entrypoint.py'),'train'],'pi0_lora_finetuning',True,{'PI0_TRAIN_STEPS':'30000'})
-    if code:save(stage='pi0_finetuning_failed_or_timed_out',exit_status=code,task_success=False);return 9
+    if code:save(stage='pi0_finetuning_failed_or_timed_out',exit_status=code,training='failed_or_timed_out',task_success=False);return 9
     save(stage='pi0_finetuning_completed_evaluation_required',training='completed',task_success=False)
     checkpoint_root=root/'runs/pi0-checkpoints'/config_name/c.name
     checkpoints=[path for path in checkpoint_root.glob('*') if path.name.isdigit() and (path/'params').is_dir()]
