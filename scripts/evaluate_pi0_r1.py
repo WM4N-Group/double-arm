@@ -57,10 +57,11 @@ def main():
             'input_modalities':['head_rgb','left_wrist_rgb','right_wrist_rgb','proprioception','instruction'],
             'execute_steps':args.execute_steps,'predicted_horizon':50,'grasping_mode':args.grasping_mode,
             'assisted_constraint_seen':False,'object_pose_write_count':0,'upstream_finger_friction':4.0,
-            'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[]}
+            'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[],
+            'inference_platform':None,'real_time_control_claim':False}
     def save():
         tmp=args.output/'result.tmp';tmp.write_text(json.dumps(result,indent=2));tmp.replace(args.output/'result.json')
-    save();writer=None;audit=None;failed=False
+    save();writer=None;audit=None;failed=False;started=time.monotonic()
     import omnigibson as og
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     try:
@@ -87,7 +88,10 @@ def main():
                 inputs={key:rgb_image(obs[name]) for key,name in cameras.items()}
                 inputs.update(state=as_numpy(obs['prop_state']).copy(),prompt=PROMPT)
                 prediction,info=infer_local(inputs,token,args.port)
-                queued.extend(prediction[:args.execute_steps]);rpc.append({'step':step,'inference_seconds':info['inference_seconds']})
+                platform=info.get('inference_platform')
+                if platform not in ('cpu','gpu'):raise ValueError('Inference service did not report its platform')
+                result['inference_platform']=platform
+                queued.extend(prediction[:args.execute_steps]);rpc.append({'step':step,'inference_seconds':info['inference_seconds'],'inference_platform':platform})
             proposed=np.asarray(queued.popleft(),np.float32);action=np.clip(proposed,lower,upper)
             clipped+=int(np.any(action!=proposed))
             states.append(as_numpy(obs['prop_state']).copy());actions.append(action.copy());path.append(as_numpy(env.robot.get_position_orientation()[0]).copy())
@@ -105,7 +109,7 @@ def main():
                 primary=rgb_image(env.env._external_sensors['external_sensor2'].get_obs()[0]['rgb'])
                 head=rgb_image(obs[cameras['head_image']])
                 frame=Image.new('RGB',(960,508),'#161616');frame.paste(Image.fromarray(primary).resize((480,480)),(0,28));frame.paste(Image.fromarray(head).resize((480,480)),(480,28))
-                ImageDraw.Draw(frame).text((5,5),f'PI0 LoRA32 / {env.robot.grasping_mode.upper()} / step {step} / success {success}',font=font,fill='white')
+                ImageDraw.Draw(frame).text((5,5),f'PI0 LoRA32 / {result["inference_platform"].upper()} / {env.robot.grasping_mode.upper()} / step {step} / success {success}',font=font,fill='white')
                 writer.append_data(np.asarray(frame))
                 if step%200==0:frame.save(args.output/'progress.jpg')
             if step%100==0:print(json.dumps({'step':step,'success':success,'grasped_ever':grasp}),flush=True)
@@ -116,7 +120,7 @@ def main():
             'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
             'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),
             'cup_specific_grasp_seen':cup_grasped,'max_cup_lift_m':max_cup_lift}
-        result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped)
+        result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,wall_clock_seconds=time.monotonic()-started)
         result['task_success']=stable>=30 and any(grasp) and cup_grasped and max_cup_lift>.03 and episode['base_path_length_m']>.5
         np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions)
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()

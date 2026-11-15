@@ -54,6 +54,31 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertIn("inputs.update(state=as_numpy(obs['prop_state'])",source)
         self.assertIn('prediction,info=infer_local(inputs,token,args.port)',source)
 
+    def test_single_gpu_deployment_can_keep_pi0_on_cpu_without_model_substitution(self):
+        source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
+        self.assertIn("choices=['cpu','gpu'],default='cpu'",source)
+        self.assertIn("10 if args.inference_platform=='cpu' else 5",source)
+        self.assertIn("'--execute-steps',str(execute_steps)",source)
+        self.assertIn('free.get(gpu,0)<22000',source)
+        service=(ROOT/'scripts/serve_pi0_r1.py').read_text()
+        self.assertIn("gpu if args.inference_platform=='gpu' else ''",service)
+        self.assertIn("'cuda' if args.inference_platform=='gpu' else 'cpu'",service)
+        self.assertIn('create_trained_policy(config,args.checkpoint)',service)
+        evaluation=(ROOT/'scripts/evaluate_pi0_r1.py').read_text()
+        self.assertIn("'real_time_control_claim':False",evaluation)
+        self.assertIn("platform=info.get('inference_platform')",evaluation)
+
+    def test_trained_inference_preflight_is_cpu_only_and_not_teacher_replay(self):
+        source=(ROOT/'scripts/preflight_pi0_inference.py').read_text()
+        self.assertIn("os.environ.get('CUDA_VISIBLE_DEVICES') != ''",source)
+        self.assertIn("os.environ.get('JAX_PLATFORMS') != 'cpu'",source)
+        self.assertIn('create_trained_policy(register_config(), args.checkpoint)',source)
+        self.assertIn('prediction = policy.infer(inputs)',source)
+        self.assertIn('actions.shape != (50, 21)',source)
+        self.assertNotIn("['actions'][",source)
+        self.assertNotIn('env.step(',source)
+        self.assertIn("'not_task_evaluation': True",source)
+
     def test_evaluation_orchestrator_uses_isolated_runtime(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn("expected_env=root/'envs/openpi'",source)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SERVER ONLY: bounded pi0 service + simulator on the same allocated GPU.
+"""SERVER ONLY: bounded genuine pi0 service + simulator, at most one GPU.
 
 Memory feasibility is checked empirically; failure must not spill to GPU0 or
 silently switch to a state BC / teacher. Real head+wrists are the only vision.
@@ -30,7 +30,11 @@ def main():
     p.add_argument('--training-provenance',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--hours',type=float,default=2)
+    p.add_argument('--inference-platform',choices=['cpu','gpu'],default='cpu')
+    p.add_argument('--execute-steps',type=int,default=None)
     args=p.parse_args();root=args.root;out=args.output
+    execute_steps=args.execute_steps if args.execute_steps is not None else (10 if args.inference_platform=='cpu' else 5)
+    if not 1<=execute_steps<=50:raise ValueError('Invalid receding horizon')
     # The lightweight controller may run under system Python (no numerical
     # dependencies). Re-exec this CPU orchestrator in the isolated openpi env;
     # never install h5py/numpy into the simulator or workstation as a workaround.
@@ -47,7 +51,8 @@ def main():
     gpu=resolve_gpu(root);out.mkdir();deadline=time.monotonic()+args.hours*3600;script=Path(__file__).resolve().parent
     state={'stage':'preparing_pi0_native_evaluation','checkpoint':str(args.checkpoint),'gpu_uuid':gpu,
            'max_gpu_count':1,'task_success':False,'started_at':datetime.now(timezone.utc).isoformat(),
-           'physical_parameters_calibrated_to_real_robot':False}
+           'physical_parameters_calibrated_to_real_robot':False,'inference_platform':args.inference_platform,
+           'execute_steps':execute_steps,'real_time_control_claim':False}
     def save(**kwargs):
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat());tmp=out/'status.tmp'
         tmp.write_text(json.dumps(state,indent=2));tmp.replace(out/'status.json')
@@ -80,8 +85,10 @@ def main():
         if any(line.split(',')[0].strip()==gpu for line in existing.splitlines()):raise RuntimeError('Allocated GPU occupied; refusing to steal it')
         server=launch([str(root/'envs/openpi/bin/python'),'-u',str(script/'serve_pi0_r1.py'),
             '--checkpoint',str(args.checkpoint),'--token-file',str(token),'--ready-file',str(out/'inference-ready.json'),
-            '--hours',str(args.hours)],out/'inference-server.log',
-            {'XLA_PYTHON_CLIENT_PREALLOCATE':'false','XLA_PYTHON_CLIENT_MEM_FRACTION':'0.32'})
+            '--hours',str(args.hours),'--inference-platform',args.inference_platform],out/'inference-server.log',
+            {'XLA_PYTHON_CLIENT_PREALLOCATE':'false','XLA_PYTHON_CLIENT_MEM_FRACTION':'0.32',
+             'CUDA_VISIBLE_DEVICES':gpu if args.inference_platform=='gpu' else '',
+             'JAX_PLATFORMS':'cuda' if args.inference_platform=='gpu' else 'cpu'})
         save(stage='loading_pi0_for_visual_inference',server_pid=server.pid)
         while time.monotonic()<deadline and server.poll() is None:
             if (out/'inference-ready.json').exists():break
@@ -96,19 +103,21 @@ def main():
             warm={name:rgb_image(group['obs'][key][0]) for name,key in keys.items()}
             warm.update(state=group['obs/prop_state'][0],prompt=PROMPT)
         infer_local(warm,token.read_text().strip(),timeout=min(600,max(1,int(deadline-time.monotonic()))))
-        # Controlled co-residency is only attempted with our own service. The
-        # reservation on GPU0 is never used to bypass a memory failure.
+        # Default CPU inference is the same checkpoint/model, not a substitute
+        # policy: it leaves the allocated GPU to the simulator. Explicit shared
+        # GPU inference still needs enough measured free memory. No GPU0.
         query=subprocess.check_output(['nvidia-smi','--query-gpu=uuid,memory.free','--format=csv,noheader,nounits'],text=True)
         free={line.split(',')[0].strip():int(line.split(',')[1].strip()) for line in query.splitlines()}
         save(pi0_warmup_completed=True,free_gpu_mib_before_simulator=free.get(gpu))
-        if free.get(gpu,0)<15000:raise RuntimeError('Insufficient shared GPU memory for simulator + pi0; need another single-card scheduling/offload design, not GPU0')
+        if free.get(gpu,0)<22000:raise RuntimeError('Insufficient free GPU memory for simulator; reserve 22000MiB, use CPU inference rather than GPU0')
         # A bare system-Python controller does not inherit Isaac/OG asset and
         # headless settings. Source the pinned runtime only for the simulator;
         # the inference service keeps its separate openpi environment.
         simulation=launch(['bash','-c','set -euo pipefail; source "$1"; shift; exec "$@"',
             'pi0-simulator',str(script/'server_env.sh'),str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
             '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
-            '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode','physical'],out/'physical-rollout.log')
+            '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode','physical',
+            '--execute-steps',str(execute_steps)],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')
