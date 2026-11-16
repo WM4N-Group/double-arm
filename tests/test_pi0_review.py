@@ -26,6 +26,15 @@ class Pi0ReviewTests(unittest.TestCase):
             (checkpoint/'assets/linked').symlink_to(checkpoint/'params/payload')
             with self.assertRaises(ValueError):fingerprint_checkpoint(checkpoint)
 
+    def test_diagnostic_scope_cannot_overwrite_failed_or_aborted_outcome(self):
+        from pi0_review_contract import mark_review_outcome
+        scope='PI0 TRAIN-SPLIT ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
+        self.assertEqual(mark_review_outcome(scope, {'task_success':False}, {}), 'FAILED - '+scope)
+        self.assertEqual(mark_review_outcome(scope, {'task_success':True}, {'aborted':True}), 'ABORTED - '+scope)
+        self.assertEqual(mark_review_outcome(scope, {'task_success':True, 'error':'abort'}, {}), 'ABORTED - '+scope)
+        self.assertEqual(mark_review_outcome(scope, {'task_success':True}, {}), scope)
+        self.assertEqual(mark_review_outcome('PI0 FAILED ATTEMPT', {'task_success':False}, {}), 'PI0 FAILED ATTEMPT')
+
     def test_unfinished_checkpoint_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint=Path(directory)/'29999';checkpoint.mkdir()

@@ -2,10 +2,11 @@
 from pathlib import Path
 import ast
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from preflight_pi0_accumulation_gpu import release_blockers, TERMINAL_STAGES
+from preflight_pi0_accumulation_gpu import release_blockers, TERMINAL_STAGES, pinned_upstream_revision, OPENPI_REV
 from resource_allocation import ALLOWED_GPU_UUID
 
 
@@ -54,6 +55,18 @@ class AccumulationReleaseTests(unittest.TestCase):
     def test_missing_controller_pid_fails_closed(self):
         del self.status['controller_pid']
         self.assertTrue(self.blockers())
+
+    def test_pinned_archive_marker_is_required_and_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(FileNotFoundError):
+                pinned_upstream_revision(root)
+            marker = root / 'UPSTREAM_REVISION'
+            marker.write_text(OPENPI_REV+'\n')
+            self.assertEqual(pinned_upstream_revision(root), OPENPI_REV)
+            marker.write_text('unrelated-revision')
+            with self.assertRaises(ValueError):
+                pinned_upstream_revision(root)
 
     def test_module_import_does_not_import_numerical_runtime(self):
         path = Path(sys.modules[release_blockers.__module__].__file__)

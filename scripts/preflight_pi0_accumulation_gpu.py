@@ -87,6 +87,21 @@ def inspect_release(campaign):
     return gpu
 
 
+def pinned_upstream_revision(source):
+    """Pinned archive installs use the SAME marker checked by the installer."""
+    source = Path(source)
+    marker = source / 'UPSTREAM_REVISION'
+    if (source / '.git').exists():
+        revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+        if marker.exists() and marker.read_text().strip() != revision:
+            raise ValueError('Archive marker and Git revision disagree')
+    else:
+        revision = marker.read_text().strip()
+    if revision != OPENPI_REV:
+        raise ValueError('Pinned openpi revision mismatch')
+    return revision
+
+
 def trainable_fingerprint(params):
     """Host hash only; never writes model tensors. Called at 0/1/63/64."""
     import jax
@@ -110,13 +125,12 @@ def run_probe(campaign, initial_params, output):
     import importlib.util
     import jax
     import numpy as np
+    import optax
     from openpi.training import data_loader, optimizer, sharding
     from pi0_r1_config import register_config
 
     source = ROOT / 'src/openpi-215abfb'
-    revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-    if revision != OPENPI_REV:
-        raise ValueError('Pinned openpi revision mismatch')
+    revision = pinned_upstream_revision(source)
     train_file = source / 'scripts/train.py'
     spec = importlib.util.spec_from_file_location('_isolated_pi0_upstream_train', train_file)
     upstream = importlib.util.module_from_spec(spec)
@@ -160,7 +174,10 @@ def run_probe(campaign, initial_params, output):
         # An in-process optimizer factory override only; restore immediately.
         original = optimizer.create_optimizer
         def factory(*args, **kwargs):
-            return accumulating_optimizer(original(*args, **kwargs), 64)
+            multi = accumulating_optimizer(original(*args, **kwargs), 64)
+            # Pinned TrainState runtime-checks tx as this NamedTuple, not the
+            # duck-typed MultiSteps object. Preserve identical init/update/state.
+            return optax.GradientTransformation(multi.init, multi.update)
         optimizer.create_optimizer = factory
         try:
             rng, init_rng = jax.random.split(jax.random.key(config.seed))

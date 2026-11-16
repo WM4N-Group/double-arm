@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 from export_demo_review import read_video,sha256_file
-from pi0_review_contract import fingerprint_checkpoint,physical_task_passed,training_split_physical_task_passed
+from pi0_review_contract import fingerprint_checkpoint,physical_task_passed,training_split_physical_task_passed,mark_review_outcome
 
 
 def main():
@@ -44,6 +44,7 @@ def main():
     if result.get('grasping_mode')!='physical':label='PI0 ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
     if episode.get('split')=='train':
         label='PI0 TRAIN-SPLIT PHYSICAL DIAGNOSTIC - NOT HELDOUT SUCCESS' if result.get('grasping_mode')=='physical' else 'PI0 TRAIN-SPLIT ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
+    label=mark_review_outcome(label,result,episode)
     rollout=args.evaluation/'physical-rollout'
     import numpy as np
     from PIL import Image,ImageDraw,ImageFont

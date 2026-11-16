@@ -19,7 +19,10 @@ def main():
     k=64;rng=np.random.default_rng(42)
     schedule=lambda count:.01/(count+1)
     inner=optax.chain(optax.clip_by_global_norm(.7),optax.adamw(schedule,b1=.9,b2=.95,weight_decay=.001))
-    acc=accumulating_optimizer(inner,k)
+    multi=accumulating_optimizer(inner,k)
+    # Match the pinned upstream TrainState.tx runtime type, not duck typing.
+    acc=optax.GradientTransformation(multi.init,multi.update)
+    assert isinstance(acc,optax.GradientTransformation)
     reference=jnp.zeros(3);micro=reference;ref_state=inner.init(reference);state=acc.init(micro)
     def loss(w,x,y):return jnp.mean((x@w-y)**2)
     @jax.jit
@@ -51,6 +54,7 @@ def main():
     report={'mode':'synthetic_cpu_optimizer_preflight','robot_policy_trained':False,'gpu_initialized':False,
         'actual_pi0_gpu_memory_test_performed':False,'active_training_untouched':True,
         'plan':accumulation_plan(1,64,50000),'three_effective_adamw_updates_match_batch64':True,
+        'pinned_trainstate_tx_gradient_transformation_type_verified':True,
         'parameters_unchanged_before_each_window_boundary':True,'optimizer_moments_and_schedule_counts_match':True,
         'clip_after_averaging_verified':True,'max_parameter_absolute_differences':errors,
         'per_micro_clipping_counterexample':{'correct_average':correct_mean,'incorrect_average':incorrect_mean},

@@ -39,6 +39,15 @@ def training_split_physical_task_passed(result):
     return _physical_task_conditions(result,'train')
 
 
+def mark_review_outcome(label, result, episode):
+    """Scope labels must never hide a failed/aborted diagnostic outcome."""
+    if episode.get('aborted') is True or result.get('error'):
+        return label if 'ABORTED' in label else 'ABORTED - ' + label
+    if result.get('task_success') is not True:
+        return label if 'FAILED' in label else 'FAILED - ' + label
+    return label
+
+
 def fingerprint_checkpoint(checkpoint):
     """Hash inference parameters/assets, NOT optimizer tensors or filenames only.
 
