@@ -23,6 +23,14 @@
 - The isolated batch64 accumulation preflight used GPU1 only after its full coverage/evaluation workflow released it. At2026-11-17 02:16 the HOST-FP32 variant passed64 real microsteps/1 optimizer update; the device-resident variant OOMed. This is native/mean-std memory/count smoke, NOT direct real batch64 numerical equivalence, full training stability, or paper-aligned training/task success. See the latest stage notes below.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### LATEST finite CPU handoff (2026-11-17 07:11 CST)
+
+- Both official generators remain healthy:07:06 GPU0seed10001 log18 successes/22 attempts, GPU1seed20000 log24/32; only prior25 are finalized/verified. Do NOT preempt a near-complete shard or treat log counts as final.
+- A finite CPU-only handoff now waits for GPU1's existing25 pool to FULLY complete and exit: `/mnt/yuanyue/double-arm/runs/paper-gpu1-data-followup-20261117-071110`, controllerPID160852/watchdog160850, pointer`runs/latest-paper-gpu1-followup.txt`. It does not own another GPU or stop current jobs. Avoid duplicate handoffs; its ownlock prevents duplicates.
+- Only after dependency final gate + process exit + cross-pool immutable QA + GPU1 free, it may start ONE new independent25-demo official assisted D0 pool with seed20001, then re-audit and end. No model training/evaluation, in-flight target change, planner changes or terms acceptance. Failed dependency/QA stops it; no blind bypass. Eight-hour controller bound is a watchdog, not a new user budget window.
+- Cross-pool registry `runs/official-raw-pool-registry.json` will preserve prior worker provenance even after latest GPU1 pointer moves. Current active GPU1 is STILL seed20000 until actual handoff; combinedmap's `GPU1_finite_data_followup` is CPU-only, not a third card job. See `docs/official-gpu1-bounded-followup-20261117.md`.
+- Routine healthy data completions/handoffs remain quiet; no new learned-policy result. Preserve the failed final89999 policy and successful memory-only host smoke as separate results.
+
 ### LATEST finalized raw data / audit (2026-11-17 04:06 CST)
 
 - GPU0 seed10000 first25-demo shard finalized and PASSED around03:56: official generator exit0,31 attempts/25 successes/6 failures, final HDF5+stats verified. Pool now25 unique raw episodes /43,767frames; controller automatically moved toseed10001 shard1. Do not restart it or call an ordinary planner retry a whole-worker failure.
