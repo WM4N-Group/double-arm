@@ -14,7 +14,9 @@ def root_rotation_xy_and_yaw(poses):
     x,y,z,w=np.moveaxis(q/norm,-1,0)
     rotation=np.stack([np.stack([1-2*(y*y+z*z),2*(x*y-z*w)],axis=-1),
                        np.stack([2*(x*y+z*w),1-2*(x*x+z*z)],axis=-1)],axis=-2)
-    if np.any(np.abs(np.linalg.det(rotation))<.98):raise ValueError('Robot root is not approximately planar')
+    determinant=np.linalg.det(rotation)
+    if np.any(np.abs(determinant)<.98):
+        raise ValueError(f'Robot root is not approximately planar: XY determinant={determinant.tolist()}, pose={poses.tolist()}')
     return rotation,np.arctan2(rotation[...,1,0],rotation[...,0,0])
 
 

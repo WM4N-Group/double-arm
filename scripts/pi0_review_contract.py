@@ -11,6 +11,8 @@ def physical_task_passed(result):
     return (result.get('mode')=='closed_loop_neural_policy'
         and result.get('algorithm')=='official_openpi_pi0_lora32'
         and result.get('task_success') is True
+        and not result.get('error')
+        and episode.get('aborted') is not True
         and result.get('privileged_state') is False
         and result.get('planner_enabled') is False
         and result.get('teacher_action_reads')==0

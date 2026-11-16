@@ -71,6 +71,33 @@ def main():
     def save():
         tmp=args.output/'result.tmp';tmp.write_text(json.dumps(result,indent=2));tmp.replace(args.output/'result.json')
     save();writer=None;audit=None;failed=False;started=time.monotonic()
+    # Keep completed transitions even when a safety check aborts the rollout.
+    # Failed/in-flight commands are never padded into a completed trace.
+    cup_positions=[];post_base_positions=[];cup_grasp_flags=[]
+    queued=deque();states=[];actions=[];targets=[];root_poses=[];base_clipped=0;path=[]
+    grasp=[False,False];stable=0;rpc=[];clipped=0;max_cup_lift=0.0;cup_grasped=False
+    step=-1;pose=None;initial_cup_position=None
+    def finalize_episode(aborted=False):
+        n=len(cup_positions)
+        if not n:return
+        positions=np.stack(path[:n])
+        episode={'demo':args.demo,'split':'validation','initial_state_load_count':1,'steps':n,
+            'aborted':aborted,'sustained_success':not aborted and stable>=30,'stable_success_frames':stable,
+            'grasped_ever':grasp,'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
+            'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),
+            'cup_specific_grasp_seen':cup_grasped,'max_cup_lift_m':max_cup_lift}
+        episode.update(cup_motion_metrics(cup_positions,post_base_positions,cup_grasp_flags,initial_cup_position))
+        result['episodes']=[episode]
+        result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,
+            clipped_native_base_steps=base_clipped,wall_clock_seconds=time.monotonic()-started)
+        result['task_success']=bool(not aborted and stable>=30 and any(grasp) and cup_grasped
+            and max_cup_lift>.03 and episode['base_path_length_m']>.5)
+        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states[:n]),
+            actions=np.stack(actions[:n]),base_positions=positions,model_action_targets=np.stack(targets[:n]),
+            pre_step_root_poses=np.stack(root_poses[:n]),post_step_cup_positions=np.stack(cup_positions),
+            post_step_base_positions=np.stack(post_base_positions),post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),
+            initial_cup_position=initial_cup_position)
+        (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     import omnigibson as og
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     try:
@@ -91,8 +118,6 @@ def main():
         writer=imageio.get_writer(str(args.output/(args.demo+'.mp4')),fps=15,codec='libx264',quality=7,macro_block_size=2)
         try:font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',15)
         except OSError:font=ImageFont.load_default()
-        cup_positions=[];post_base_positions=[];cup_grasp_flags=[]
-        queued=deque();states=[];actions=[];targets=[];base_clipped=0;path=[];grasp=[False,False];stable=0;rpc=[];clipped=0
         for step in range(args.max_steps):
             audit.step=step
             if not queued:
@@ -108,15 +133,16 @@ def main():
                 queued.extend(prediction[:args.execute_steps]);rpc.append({'step':step,'inference_seconds':info['inference_seconds'],'inference_platform':platform})
             proposed=np.asarray(queued.popleft(),np.float32);target=np.clip(proposed,lower,upper)
             clipped+=int(np.any(target!=proposed));targets.append(target.copy())
+            position,quaternion=env.robot.get_position_orientation()
+            pose=np.concatenate([as_numpy(position),as_numpy(quaternion)])
             if args.action_representation=='absolute_base':
-                position,quaternion=env.robot.get_position_orientation()
                 # Current ROBOT odometry is used only by this ordinary motor
                 # target conversion, not as a VLA input or navigation planner.
-                pose=np.concatenate([as_numpy(position),as_numpy(quaternion)])
                 action=absolute_base_to_native(target,pose)
                 capped=np.clip(action[:3],base_lower,base_upper)
                 base_clipped+=int(np.any(capped!=action[:3]));action[:3]=capped
             else:action=target
+            root_poses.append(pose.copy())
             states.append(as_numpy(obs['prop_state']).copy());actions.append(action.copy());path.append(as_numpy(env.robot.get_position_orientation()[0]).copy())
             raw,reward,done,truncated,info=env.env.step(torch.tensor(action))
             obs,_=env.get_obs_IL(di=(raw,{}))
@@ -141,25 +167,20 @@ def main():
                 ImageDraw.Draw(frame).text((5,5),f'PI0 LoRA32 / {result["inference_platform"].upper()} / {env.robot.grasping_mode.upper()} / step {step} / success {success}',font=font,fill='white')
                 writer.append_data(np.asarray(frame))
                 if step%200==0:frame.save(args.output/'progress.jpg')
-            if step%100==0:print(json.dumps({'step':step,'success':success,'grasped_ever':grasp}),flush=True)
+            if step%100==0:print(json.dumps({'step':step,'success':success,'grasped_ever':grasp,'robot_root_pose':pose.tolist()}),flush=True)
             if stable>=30 or truncated or (done and not success):break
         writer.close();writer=None
-        positions=np.stack(path);episode={'demo':args.demo,'split':'validation','initial_state_load_count':1,'steps':step+1,
-            'sustained_success':stable>=30,'stable_success_frames':stable,'grasped_ever':grasp,
-            'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
-            'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),
-            'cup_specific_grasp_seen':cup_grasped,'max_cup_lift_m':max_cup_lift}
-        episode.update(cup_motion_metrics(cup_positions,post_base_positions,cup_grasp_flags,initial_cup_position))
-        result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,clipped_native_base_steps=base_clipped,wall_clock_seconds=time.monotonic()-started)
-        result['task_success']=stable>=30 and any(grasp) and cup_grasped and max_cup_lift>.03 and episode['base_path_length_m']>.5
-        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions,model_action_targets=np.stack(targets),
-            post_step_cup_positions=np.stack(cup_positions),post_step_base_positions=np.stack(post_base_positions),
-            post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),initial_cup_position=initial_cup_position)
-        (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
+        finalize_episode()
     except BaseException as error:
         failed=True;result.update(error=repr(error),task_success=False)
         if audit:result['object_pose_write_count']=len(audit.events)
-        traceback.print_exc();save()
+        result['failure_context']={'attempted_step':step,'completed_steps':len(cup_positions),
+            'robot_root_pose':None if pose is None else pose.tolist()}
+        traceback.print_exc()
+        try:finalize_episode(aborted=True)
+        except Exception as trace_error:
+            result['trace_export_error']=repr(trace_error);traceback.print_exc()
+        save()
     finally:
         if audit:audit.close()
         if writer:writer.close()

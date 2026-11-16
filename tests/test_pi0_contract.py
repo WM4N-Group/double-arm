@@ -225,6 +225,14 @@ class Pi0Numerics(unittest.TestCase):
         pose[5]=np.sin(target[2]/2);pose[6]=np.cos(target[2]/2)
         np.testing.assert_allclose(absolute_base_to_native(target,pose)[:3],0,atol=1e-6)
 
+    def test_tilted_robot_root_still_fails_closed_with_pose_diagnostics(self):
+        import numpy as np
+        from pi0_base_targets import absolute_base_to_native
+        angle=.3
+        pose=np.array([5.,0.,0.,np.sin(angle/2),0.,0.,np.cos(angle/2)])
+        with self.assertRaisesRegex(ValueError,'not approximately planar: XY determinant=.*pose='):
+            absolute_base_to_native(np.zeros(21),pose)
+
     def test_absolute_overlay_stops_at_episode_boundary_and_is_not_loaded_for_inference(self):
         import tempfile
         import numpy as np
