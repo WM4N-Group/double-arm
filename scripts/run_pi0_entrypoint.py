@@ -23,7 +23,11 @@ def capture_adapter_contract(config,root):
             'norm_stats_asset_id':data.asset_id,'source_norm_stats_sha256':hashlib.sha256(norm.read_bytes()).hexdigest(),
             'training_source_sha256':{name:hashlib.sha256((scripts/name).read_bytes()).hexdigest()
                 for name in ('run_pi0_entrypoint.py','pi0_r1_config.py','momagen_pi0_schema.py')},
-            'base_odometry_scope':'low-level motor conversion only, not VLA input'}
+            'base_odometry_scope':'low-level motor conversion only, not VLA input',
+            'initialization':config.policy_metadata.get('initialization'),
+            'training_steps':config.num_train_steps,'batch_size':config.batch_size,
+            'lr_schedule':{'warmup_steps':config.lr_schedule.warmup_steps,'peak_lr':config.lr_schedule.peak_lr,
+                'decay_steps':config.lr_schedule.decay_steps,'decay_lr':config.lr_schedule.decay_lr}}
     if representation=='absolute_base':
         manifest=root/'data/pi0/absolute-base-v2/manifest.json'
         report['derived_label_manifest_sha256']=hashlib.sha256(manifest.read_bytes()).hexdigest()

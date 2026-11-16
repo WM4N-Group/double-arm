@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import numpy as np
 from momagen_pi0_schema import make_pi0_inputs,unpad_pi0_actions,PROMPT
+from pi0_initialization_contract import training_initialization
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,7 +58,7 @@ def register_config(action_representation=None):
     from openpi import transforms
     from openpi.models import gemma
     from openpi.models import pi0_config
-    from openpi.training import config,weight_loaders
+    from openpi.training import config,weight_loaders,optimizer
     root=Path(os.environ.get('DOUBLE_ARM_ROOT','/mnt/yuanyue/double-arm'))
     representation=action_representation or os.environ.get('PI0_ACTION_REPRESENTATION','native')
     if representation not in ('native','absolute_base'):raise ValueError('Unknown pi0 action representation')
@@ -82,16 +83,18 @@ def register_config(action_representation=None):
                 model_transforms=config.ModelTransformFactory(default_prompt=PROMPT)(model_config))
     model=pi0_config.Pi0Config(paligemma_variant='gemma_2b_lora',action_expert_variant='gemma_300m_lora',action_horizon=50)
     name='pi0_r1_tidy_table_absolute_base_lora32' if absolute else 'pi0_r1_tidy_table_lora32'
+    initial_params,initialization=training_initialization(root,os.environ.get('PI0_INITIAL_PARAMS'),representation)
     train=config.TrainConfig(name=name,project_name='double-arm-pi0',exp_name=os.environ.get('PI0_EXP_NAME','pilot'),
         model=model,data=R1DataConfig(repo_id=os.environ.get('PI0_DATASET_REPO','momagen/r1_tidy_table_train_v1'),base_config=config.DataConfig(prompt_from_task=True,use_quantile_norm=absolute)),
-        weight_loader=weight_loaders.CheckpointWeightLoader(str(root/'data/pi0/checkpoints/pi0_base/params')),
+        weight_loader=weight_loaders.CheckpointWeightLoader(str(initial_params)),
         freeze_filter=model.get_freeze_filter(),ema_decay=None,
+        lr_schedule=optimizer.CosineDecaySchedule(decay_steps=int(os.environ.get('PI0_LR_DECAY_STEPS','30000'))),
         batch_size=int(os.environ.get('PI0_BATCH_SIZE','1')),num_workers=2,
         num_train_steps=int(os.environ.get('PI0_TRAIN_STEPS','30000')),
         save_interval=1000,log_interval=10,keep_period=5000,
         assets_base_dir=str(root/'data/pi0/assets'),checkpoint_base_dir=str(root/'runs/pi0-checkpoints'),
         wandb_enabled=False,fsdp_devices=1,
-        policy_metadata={'robot':'MoMaGen R1','model':'pi0','action_dim_native':21,'action_horizon':50,'lora_rank_vlm':32,'lora_rank_action':32,
+        policy_metadata={'initialization':initialization,'robot':'MoMaGen R1','model':'pi0','action_dim_native':21,'action_horizon':50,'lora_rank_vlm':32,'lora_rank_action':32,
                          'action_representation':representation,'action_encoding':
                          'absolute world-base targets + absolute joint targets + native grippers; robot odometry used only in low-level controller' if absolute else
                          'native local-delta base + absolute joint targets + native grippers; no ALOHA conversion or extra delta transform'})

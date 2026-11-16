@@ -294,6 +294,24 @@ class Pi0Numerics(unittest.TestCase):
         pose[5]=np.sin(target[2]/2);pose[6]=np.cos(target[2]/2)
         np.testing.assert_allclose(absolute_base_to_native(target,pose)[:3],0,atol=1e-6)
 
+    def test_coverage_warm_start_factory_preserves_native_policy_and_extends_schedule(self):
+        sys.path.insert(0,str(ROOT/'scripts'))
+        import json,os,tempfile
+        from unittest.mock import patch
+        from pi0_r1_config import register_config
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);checkpoint=root/'runs/pi0_r1_tidy_table_lora32/source/29999'
+            (checkpoint/'params').mkdir(parents=True)
+            (checkpoint/'_CHECKPOINT_METADATA').write_text(json.dumps({'commit_timestamp_nsecs':1}))
+            norm=checkpoint/'assets/momagen/r1_tidy_table_train_v1/norm_stats.json';norm.parent.mkdir(parents=True);norm.write_text('{}')
+            with patch.dict(os.environ,{'DOUBLE_ARM_ROOT':str(root),'PI0_INITIAL_PARAMS':str(checkpoint/'params'),'PI0_LR_DECAY_STEPS':'90000'}):
+                config=register_config(action_representation='native')
+                self.assertEqual(config.name,'pi0_r1_tidy_table_lora32')
+                self.assertEqual(config.lr_schedule.decay_steps,90000)
+                self.assertIn(str(checkpoint/'params'),str(config.weight_loader))
+                self.assertFalse(config.policy_metadata['initialization']['optimizer_state_restored'])
+                self.assertEqual(config.policy_metadata['action_representation'],'native')
+
     def test_tilted_robot_root_still_fails_closed_with_pose_diagnostics(self):
         import numpy as np
         from pi0_base_targets import absolute_base_to_native
