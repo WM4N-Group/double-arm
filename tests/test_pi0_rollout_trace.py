@@ -26,7 +26,7 @@ class RolloutTraceTests(unittest.TestCase):
             n=3;result={};saved=[]
             scope={'np':np,'json':json,'args':SimpleNamespace(demo='demo_0',evaluation_split='validation',output=Path(directory)),
                 'cup_positions':[np.array([0.,0.,.1])]*n,'post_base_positions':[np.array([float(i),0.,0.]) for i in range(n)],
-                'cup_grasp_flags':[True]*n,'initial_cup_position':np.zeros(3),
+                'cup_grasp_flags':[True]*n,'eef_poses':[np.zeros((2,7))]*n,'cup_contact_counts':[np.zeros(2,dtype=int)]*n,'initial_cup_position':np.zeros(3),
                 'states':[np.full(21,i) for i in range(n+1)],'actions':[np.full(21,i) for i in range(n+1)],
                 'targets':[np.full(21,i) for i in range(n+1)],'proposals':[np.full(21,i+.25) for i in range(n+1)],'root_poses':[np.array([0.,0.,0.,0.,0.,0.,1.])]*(n+1),
                 'path':[np.array([float(i),0.,0.]) for i in range(n+1)],
@@ -42,7 +42,7 @@ class RolloutTraceTests(unittest.TestCase):
             self.assertEqual(result['episodes'][0]['steps'],n)
             self.assertEqual(saved,[True])
             with np.load(Path(directory)/'demo_0-trace.npz') as trace:
-                for key in ('actions','observations','model_action_targets','model_proposed_targets','pre_step_root_poses','base_positions'):
+                for key in ('actions','observations','model_action_targets','model_proposed_targets','pre_step_root_poses','base_positions','post_step_eef_world_poses','post_step_cup_contact_finger_counts'):
                     self.assertEqual(len(trace[key]),n)
                 np.testing.assert_array_equal(trace['actions'][-1],np.full(21,n-1))
             scope['cup_positions']=[];result.clear();saved.clear()

@@ -23,6 +23,7 @@ from object_pose_audit import ObjectPoseAudit
 from pi0_rpc import infer_local
 from pi0_base_targets import absolute_base_to_native
 from rollout_motion_metrics import cup_motion_metrics
+from grasp_telemetry import read_grasp_telemetry
 from state_policy_features import as_numpy
 from evaluation_split_contract import verify_evaluation_episode
 
@@ -89,7 +90,7 @@ def main():
     save();writer=None;audit=None;failed=False;started=time.monotonic()
     # Keep completed transitions even when a safety check aborts the rollout.
     # Failed/in-flight commands are never padded into a completed trace.
-    cup_positions=[];post_base_positions=[];cup_grasp_flags=[]
+    cup_positions=[];post_base_positions=[];cup_grasp_flags=[];eef_poses=[];cup_contact_counts=[]
     queued=deque();states=[];actions=[];targets=[];proposals=[];root_poses=[];base_clipped=0;path=[]
     grasp=[False,False];stable=0;rpc=[];clipped=0;max_cup_lift=0.0;cup_grasped=False
     step=-1;pose=None;initial_cup_position=None
@@ -112,7 +113,9 @@ def main():
             actions=np.stack(actions[:n]),base_positions=positions,model_action_targets=np.stack(targets[:n]),
             model_proposed_targets=np.stack(proposals[:n]),
             pre_step_root_poses=np.stack(root_poses[:n]),post_step_cup_positions=np.stack(cup_positions),
-            post_step_base_positions=np.stack(post_base_positions),post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),
+            post_step_base_positions=np.stack(post_base_positions),
+            post_step_eef_world_poses=np.stack(eef_poses[:n]),post_step_cup_contact_finger_counts=np.stack(cup_contact_counts[:n]),
+            post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),
             initial_cup_position=initial_cup_position)
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     import omnigibson as og
@@ -228,6 +231,9 @@ def main():
             cup_grasped|=cup_grasp_now
             # Evaluation-only pose/contact audit. These arrays NEVER enter the
             # RPC request or influence model actions / stopping conditions.
+            end_effector_poses,contact_counts,telemetry_errors=read_grasp_telemetry(env.robot,cup)
+            eef_poses.append(end_effector_poses);cup_contact_counts.append(contact_counts)
+            if telemetry_errors:result['supplementary_grasp_telemetry_errors']=sorted(set(result.get('supplementary_grasp_telemetry_errors',[])+telemetry_errors))
             cup_position=as_numpy(cup.get_position_orientation()[0]).copy()
             cup_positions.append(cup_position);cup_grasp_flags.append(cup_grasp_now)
             post_base_positions.append(as_numpy(obs['base_link_pose'])[:3].copy())
