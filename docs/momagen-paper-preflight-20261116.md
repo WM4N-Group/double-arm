@@ -56,3 +56,43 @@
 
 - 本地98项测试通过，其中25项数值依赖相关测试跳过；CPU侧真实累积算术检验已通过。
 - 本轮没有改变当前GPU训练的任何参数或数据，也没有产生新的策略成功率或成功视频。
+
+## 5. 接手后的隔离GPU预检准备（22:53 CST，尚未运行真实π₀累积）
+
+再次核查权威指针：coverage v3仍为 `native_coverage_finetuning`，约76.3k / 新增90k更新，控制器117227、watchdog118863、实际trainer118864均存活。没有启动新的训练或仿真，没有新闭环结果。当前训练及后续自动评估的任何配置 / 标签 / 数据 / normalization均保持不动。远端已部署的只读grasp telemetry、evaluator、evaluation orchestrator与本地对应文件SHA256一致，未来自动评估会使用这套遥测；这不是实际接触数据已经产生的声明。
+
+新增 `scripts/preflight_pi0_accumulation_gpu.py`，供**整个现有训练→自动评估工作流结束且GPU1释放后**单独执行：
+
+- `--check-only` 只用标准库、分配文件、权威指针、进程状态和 `nvidia-smi` 检查。非终态、控制器 / child仍存活、指针改指新任务、GPU1占用或用户pause均拒绝；不能把训练结束到评估开始之间的短暂空卡当释放。
+- 非check-only路径也先过门禁，再独占本预检lock并复查，才加载JAX / 模型；仅使用明确授权的GPU1 UUID。此lock只序列化本预检，不是其他控制器也遵守的全局GPU锁。
+- 复用固定openpi的 `init_train_state` / `train_step` 与现有真实三图训练loader；仅在本进程中将原clip+AdamW封装进 `MultiSteps(64)`，随后立即还原优化器工厂。未改上游文件，未接入当前训练器。
+- 只测现有native / mean-std / rank32配方的内存与计数可行性，不声称quantile或完整论文新版本已经对齐。使用显式提交的native权重热启动和fresh optimizer，无模型推理 / 仿真 / teacher控制。
+- 计划做64次真实microstep / 1次effective optimizer update，记录实际accumulator字节 / dtype、loss与norm有限性、显存统计、micro与AdamW / LR计数。在0/1/63/64处对完整trainable树做内存哈希：检查1/63不变，64更新。**不是每一步完整树都做哈希，也没有与真实直接batch64逐位对比。**
+- 不调用上游main，不保存权重或checkpoint，只写小型JSON。异常 / OOM明确保留失败，不把CPU数学通过或仅初始化成功写成GPU累积通过。实际首次初始化 / 编译仍可能发现问题。
+
+独立预检脚本暂存于远端已有CPU预检产物下：
+
+```text
+/mnt/yuanyue/double-arm/runs/paper-preflight-20261116-195823/staged-accumulation-gpu/preflight_pi0_accumulation_gpu.py
+```
+
+真实执行命令（**本次没有执行，也没有后台排队**；先处理新评估视频，再等完整工作流释放）：
+
+```bash
+R=/mnt/yuanyue/double-arm
+C=$(cat "$R/runs/latest-pi0-coverage-campaign.txt")
+P="$R/runs/paper-preflight-20261116-195823/staged-accumulation-gpu/preflight_pi0_accumulation_gpu.py"
+INITIAL="$R/runs/pi0-checkpoints/pi0_r1_tidy_table_lora32/pi0-momagen-20261115-233529/29999/params"
+OUT="$R/runs/pi0-accumulation-gpu-preflight-$(date +%Y%m%d-%H%M%S)/report.json"
+CUDA_VISIBLE_DEVICES=GPU-50e5d38d-2825-e379-f537-7f0bf4609aba \
+JAX_PLATFORMS=cuda PYTHONPATH="$R/code/scripts" \
+timeout --signal=TERM --kill-after=90s 3600 taskset -c 88-103 \
+"$R/envs/openpi/bin/python" -u "$P" --campaign "$C" \
+    --initial-params "$INITIAL" --output "$OUT"
+```
+
+这里3600秒是单次预检watchdog，不是重置预算或要求用户重新授权。进程被硬kill时JSON可能停在最近一个已完成microstep，不能据此认为全部通过。未来执行时还需记录该独立预检的job指针；此处没有改写在训工作流的任何指针。
+
+验证：本地共运行107项测试（80通过、27项数值依赖skip，含7项新增标准库门禁测试）。服务器用隔离脚本实际运行 `--check-only` 得到退出码3，并明确报告训练 / 控制器 / GPU占用阻断；同一进程 `jax / numpy / torch / openpi` 均未导入。**真实π₀ GPU累积、显存可行性和真实直接batch64数值一致性仍未验证。**
+
+自动化防重复：本次可用工具中未发现 `automation_update`，本地可见automations目录亦没有 `double-arm-46207-2` 对应配置，因此未能核实该app侧自动化指向；未创建、替换或宣称已修复自动化。远端现有控制器仍独立运行，其训练→诊断→条件性heldout自动链路不依赖此处新建monitor。
