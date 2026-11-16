@@ -36,12 +36,15 @@ def main():
     p.add_argument('--action-bounds',type=Path,required=True)
     p.add_argument('--port',type=int,default=18731)
     p.add_argument('--max-steps',type=int,default=3000)
+    p.add_argument('--snapshot-only',action='store_true',help='Audit reset RGB/proprio; no model inference or env.step')
+    p.add_argument('--reset-settle-steps',type=int,default=0,help='Explicit physics/Fabric sync candidate; default keeps original evaluation behavior')
     p.add_argument('--execute-steps',type=int,default=5)
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='physical')
     p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
     args=p.parse_args()
     if args.output.exists():raise FileExistsError(args.output)
     if not 1<=args.execute_steps<=50:raise ValueError('Invalid receding horizon')
+    if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
     token=args.token_file.read_text().strip();bounds=json.loads(args.action_bounds.read_text())
     lower=np.asarray(bounds['min'],np.float32);upper=np.asarray(bounds['max'],np.float32)
     if lower.shape!=(21,) or upper.shape!=(21,) or np.any(lower>upper):raise ValueError('Invalid dataset native action limits')
@@ -59,7 +62,7 @@ def main():
         meta=json.loads(file['data'].attrs['env_args']);g=file['data/'+args.demo];initial=g['states'][0]
     meta['env_kwargs']['init_curobo']=False
     args.output.mkdir(parents=True)
-    result={'mode':'closed_loop_neural_policy','algorithm':'official_openpi_pi0_lora32','privileged_state':False,
+    result={'mode':'reset_observation_audit_only' if args.snapshot_only else 'closed_loop_neural_policy','algorithm':'official_openpi_pi0_lora32','privileged_state':False,
             'checkpoint':str(args.checkpoint),'planner_enabled':False,'teacher_action_reads':0,'initial_state_load_count':1,
             'input_modalities':['head_rgb','left_wrist_rgb','right_wrist_rgb','proprioception','instruction'],
             'execute_steps':args.execute_steps,'predicted_horizon':50,'grasping_mode':args.grasping_mode,
@@ -67,6 +70,7 @@ def main():
             'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[],
             'inference_platform':None,'real_time_control_claim':False,'action_representation':args.action_representation,
             'low_level_robot_odometry_used':args.action_representation=='absolute_base',
+            'requested_reset_physics_steps':args.reset_settle_steps,'reset_physics_steps':0,
             'evaluation_source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     def save():
         tmp=args.output/'result.tmp';tmp.write_text(json.dumps(result,indent=2));tmp.replace(args.output/'result.json')
@@ -107,6 +111,17 @@ def main():
         og.sim.load_state(torch.tensor(initial,dtype=torch.float32),serialized=True)
         if args.grasping_mode=='physical':activate_physical_after_reset(env.robot)
         result['grasping_mode']=env.robot.grasping_mode
+        audit=ObjectPoseAudit(env.env.task.object_scope)
+        # Opt-in candidate only: let physics update restored articulation/Fabric
+        # before reading cameras. No env.step, motor command, pose setter, teacher
+        # action or planner. Do not adopt as a validated fix without a new audit.
+        for _ in range(args.reset_settle_steps):
+            og.sim.step()
+            result['reset_physics_steps']+=1
+            assisted=any(value is not None for value in env.robot._ag_obj_constraints.values())
+            result['assisted_constraint_seen']|=assisted
+            if args.grasping_mode=='physical' and (assisted or audit.events):
+                raise ValueError('Assistance or object pose writes during reset settling')
         for _ in range(3):og.sim.render()
         predicate=env.env.task._termination_conditions['predicate'];predicate.reset(env.env.task,env.env)
         if env.is_success()['task']:raise ValueError('Initial state already satisfies task')
@@ -114,7 +129,20 @@ def main():
         initial_cup_position=as_numpy(cup.get_position_orientation()[0]).copy()
         initial_cup_z=float(initial_cup_position[2])
         max_cup_lift=0.0;cup_grasped=False
-        obs,_=env.get_obs_IL();cameras=camera_keys(obs);audit=ObjectPoseAudit(env.env.task.object_scope)
+        obs,_=env.get_obs_IL();cameras=camera_keys(obs)
+        # Exact reset policy modalities for offline data/live domain audits.
+        # No object pose, serialized state, action label or clock is in this file.
+        initial_inputs={key:rgb_image(obs[name]) for key,name in cameras.items()}
+        initial_inputs['state']=as_numpy(obs['prop_state']).copy()
+        snapshot=args.output/'initial-observation.npz'
+        snapshot_tmp=args.output/'initial-observation.tmp'
+        with snapshot_tmp.open('wb') as handle:np.savez_compressed(handle,**initial_inputs)
+        snapshot_tmp.replace(snapshot)
+        result.update(initial_observation_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+            initial_observation_camera_keys=cameras)
+        if args.snapshot_only:
+            result.update(simulator_control_calls=0,inference_calls=0,task_success=False)
+            save();return
         writer=imageio.get_writer(str(args.output/(args.demo+'.mp4')),fps=15,codec='libx264',quality=7,macro_block_size=2)
         try:font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',15)
         except OSError:font=ImageFont.load_default()

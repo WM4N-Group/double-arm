@@ -37,9 +37,11 @@ def main():
     p.add_argument('--sampling-noise',choices=['gaussian','zero'],default='gaussian')
     p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
     p.add_argument('--grasping-mode',choices=['physical','configured'],default='physical')
+    p.add_argument('--reset-settle-steps',type=int,default=0)
     args=p.parse_args();root=args.root;out=args.output
     execute_steps=args.execute_steps if args.execute_steps is not None else (10 if args.inference_platform=='cpu' else 5)
     if not 1<=execute_steps<=50:raise ValueError('Invalid receding horizon')
+    if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
     if not 1<=args.denoising_steps<=100:raise ValueError('Invalid denoising step count')
     # The lightweight controller may run under system Python (no numerical
     # dependencies). Re-exec this CPU orchestrator in the isolated openpi env;
@@ -60,7 +62,7 @@ def main():
            'physical_parameters_calibrated_to_real_robot':False,'inference_platform':args.inference_platform,
            'execute_steps':execute_steps,'real_time_control_claim':False,
            'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation,
-           'grasping_condition':args.grasping_mode}
+           'grasping_condition':args.grasping_mode,'requested_reset_physics_steps':args.reset_settle_steps}
     def save(**kwargs):
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat());tmp=out/'status.tmp'
         tmp.write_text(json.dumps(state,indent=2));tmp.replace(out/'status.json')
@@ -132,7 +134,8 @@ def main():
             'pi0-simulator',str(script/'server_env.sh'),str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
             '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
-            '--execute-steps',str(execute_steps),'--action-representation',args.action_representation],out/'physical-rollout.log')
+            '--execute-steps',str(execute_steps),'--action-representation',args.action_representation,
+            '--reset-settle-steps',str(args.reset_settle_steps)],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_author_config' if args.grasping_mode=='configured' else 'evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')
