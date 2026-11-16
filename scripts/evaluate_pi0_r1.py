@@ -37,6 +37,7 @@ def main():
     p.add_argument('--port',type=int,default=18731)
     p.add_argument('--max-steps',type=int,default=3000)
     p.add_argument('--snapshot-only',action='store_true',help='Audit reset RGB/proprio; no model inference or env.step')
+    p.add_argument('--snapshot-settle-series',default='',help='Snapshot-only cumulative physics steps, e.g. 0,1,2,5,20; max20')
     p.add_argument('--reset-settle-steps',type=int,default=0,help='Explicit physics/Fabric sync candidate; default keeps original evaluation behavior')
     p.add_argument('--execute-steps',type=int,default=5)
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='physical')
@@ -45,6 +46,12 @@ def main():
     if args.output.exists():raise FileExistsError(args.output)
     if not 1<=args.execute_steps<=50:raise ValueError('Invalid receding horizon')
     if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
+    series=[]
+    if args.snapshot_settle_series:
+        series=[int(value) for value in args.snapshot_settle_series.split(',')]
+        if not args.snapshot_only or args.reset_settle_steps!=0 or series!=sorted(set(series)) or not all(0<=n<=20 for n in series):
+            raise ValueError('Snapshot series requires ordered unique steps0..20, snapshot-only and no extra settling')
+
     token=args.token_file.read_text().strip();bounds=json.loads(args.action_bounds.read_text())
     lower=np.asarray(bounds['min'],np.float32);upper=np.asarray(bounds['max'],np.float32)
     if lower.shape!=(21,) or upper.shape!=(21,) or np.any(lower>upper):raise ValueError('Invalid dataset native action limits')
@@ -112,6 +119,37 @@ def main():
         if args.grasping_mode=='physical':activate_physical_after_reset(env.robot)
         result['grasping_mode']=env.robot.grasping_mode
         audit=ObjectPoseAudit(env.env.task.object_scope)
+        if series:
+            result.update(mode='reset_observation_series_audit_only',reset_snapshots=[],
+                simulator_control_calls=0,inference_calls=0,task_success=False)
+            for count in series:
+                while result['reset_physics_steps']<count:
+                    og.sim.step()
+                    result['reset_physics_steps']+=1
+                    assisted=any(value is not None for value in env.robot._ag_obj_constraints.values())
+                    result['assisted_constraint_seen']|=assisted
+                    if args.grasping_mode=='physical' and (assisted or audit.events):
+                        raise ValueError('Assistance or object pose writes during reset series')
+                for _ in range(3):og.sim.render()
+                reset_obs,_=env.get_obs_IL();reset_cameras=camera_keys(reset_obs)
+                reset_inputs={key:rgb_image(reset_obs[name]) for key,name in reset_cameras.items()}
+                reset_inputs['state']=as_numpy(reset_obs['prop_state']).copy()
+                snapshot=args.output/f'observation-physics-{count}.npz'
+                temporary=snapshot.with_suffix('.tmp')
+                with temporary.open('wb') as handle:np.savez_compressed(handle,**reset_inputs)
+                temporary.replace(snapshot)
+                root_position,root_quaternion=env.robot.get_position_orientation()
+                assisted=any(value is not None for value in env.robot._ag_obj_constraints.values())
+                result['assisted_constraint_seen']|=assisted
+                if args.grasping_mode=='physical' and (assisted or audit.events):
+                    raise ValueError('Assistance or object pose writes during snapshot capture')
+                result['reset_snapshots'].append({'physics_steps':count,'path':str(snapshot),
+                    'sha256':hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+                    'robot_root_pose':np.concatenate([as_numpy(root_position),as_numpy(root_quaternion)]).tolist(),
+                    'camera_keys':reset_cameras,'object_pose_write_count':len(audit.events)})
+                result['object_pose_write_count']=len(audit.events);save()
+                print(json.dumps({'reset_snapshot_physics_steps':count,'snapshot':str(snapshot)}),flush=True)
+            result['snapshot_series_completed']=True;save();return
         # Opt-in candidate only: let physics update restored articulation/Fabric
         # before reading cameras. No env.step, motor command, pose setter, teacher
         # action or planner. Do not adopt as a validated fix without a new audit.

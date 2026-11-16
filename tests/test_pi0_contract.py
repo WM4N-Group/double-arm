@@ -169,6 +169,17 @@ class Pi0SourceContract(unittest.TestCase):
         orchestrator=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn("'--reset-settle-steps',str(args.reset_settle_steps)",orchestrator)
 
+    def test_reset_series_is_audit_only_without_model_or_action_control(self):
+        source=(ROOT/'scripts/evaluate_pi0_r1.py').read_text();tree=ast.parse(source)
+        branch=next(n for n in ast.walk(tree) if isinstance(n,ast.If) and ast.unparse(n.test)=='series')
+        body=ast.get_source_segment(source,branch)
+        self.assertIn("mode='reset_observation_series_audit_only'",body)
+        self.assertIn("simulator_control_calls=0,inference_calls=0,task_success=False",body)
+        self.assertNotIn('infer_local(',body);self.assertNotIn('env.env.step(',body)
+        self.assertIn('assisted or audit.events',body)
+        self.assertEqual(source.count('og.sim.load_state('),1)
+        self.assertIn('not args.snapshot_only',source)
+
     def test_evaluation_exports_separately_labelled_review(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn('physical_task_passed(result)',source)
