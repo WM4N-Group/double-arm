@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""SERVER CPU controller: GPU0 official assisted Tidy Table/D0 data shards.
+"""SERVER CPU controller: one authorized GPU, official assisted D0 data shards.
 
 Does NOT train a policy, modify current v3 data, convert labels, select a split,
-or claim learned/physical success. Existing GPU1 workflow is left independent.
+or claim learned/physical success. Existing policy workflows are left independent; GPU1 requires completed coverage.
 Uses existing explicit license file, never creates acceptance flags itself.
 """
 import argparse
@@ -35,6 +35,14 @@ def generation_run(log, root=ROOT):
                     raise ValueError('Generator returned an out-of-project run')
                 return path
     return None
+
+
+def job_paths(root, index):
+    if index not in ('0', '1'):
+        raise ValueError('Explicit physical GPU index0 or1 required')
+    root = Path(root)
+    name = 'latest-paper-generation-campaign.txt' if index == '0' else 'latest-paper-generation-gpu1-campaign.txt'
+    return root/'runs'/name, root/'runs'/f'latest-gpu{index}-job.json', ('0-15' if index == '0' else '88-103')
 
 
 def unique_new_episodes(episodes, seen):
@@ -89,7 +97,7 @@ def inspect_finalized_shard(run, required):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--campaign', type=Path, required=True)
-    parser.add_argument('--gpu', default='0', choices=['0'])
+    parser.add_argument('--gpu', default='0', choices=['0', '1'])
     parser.add_argument('--target', type=int, default=1000)
     parser.add_argument('--shard-size', type=int, default=25)
     parser.add_argument('--seed-start', type=int, default=10000)
@@ -104,13 +112,19 @@ def main():
     if not c.resolve().is_relative_to(ROOT / 'runs') or c.is_symlink():
         raise ValueError('Remote new campaign under runs/ required')
     gpu = resolve_gpu(ROOT, args.gpu)
+    if args.gpu == '1':
+        from preflight_pi0_accumulation_gpu import inspect_release
+        inspect_release(Path((ROOT/'runs/latest-pi0-coverage-campaign.txt').read_text().strip()))
+    campaign_pointer, job_pointer, cpu_affinity = job_paths(ROOT, args.gpu)
     c.mkdir(exist_ok=False)
     script = Path(__file__).resolve().parent
     lock = (ROOT / 'runs' / f'gpu-{gpu}.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     state = {'stage': 'starting', 'controller_pid': os.getpid(),
              'started_at': datetime.now(timezone.utc).isoformat(),
-             'gpu_uuid': gpu, 'max_gpu_count': 1, 'target_unique_demos': args.target,
+             'gpu_uuid': gpu, 'physical_gpu_index': int(args.gpu), 'max_gpu_count': 1,
+             'generation_role': 'primary_1000_pool' if args.gpu == '0' else 'bounded_auxiliary_pool_NOT_global_target_or_split',
+             'target_unique_demos': args.target,
              'shard_size': args.shard_size, 'source_grasping_mode': 'assisted',
              'policy_training': 'not_run', 'learned_policy_task_success': False,
              'paper_reproduction_complete': False, 'validation_split_created': False,
@@ -128,17 +142,17 @@ def main():
         if (ROOT / 'runs/USER_PAUSED.json').exists():
             raise RuntimeError('User paused project')
         if resolve_gpu(ROOT, args.gpu) != gpu:
-            raise RuntimeError('Explicit GPU0 authorization changed')
+            raise RuntimeError('Explicit selected-GPU authorization changed')
     def interrupted(signum, frame):
         raise InterruptedError(f'Generation controller signal {signum}')
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     save()
-    (ROOT / 'runs/latest-paper-generation-campaign.txt').write_text(str(c) + '\n')
+    campaign_pointer.write_text(str(c) + '\n')
     pointer = {'controller_pid': os.getpid(), 'campaign': str(c),
                'status_file': str(c / 'status.json'), 'gpu_uuid': gpu, 'max_gpu_count': 1,
                'role': 'official_assisted_paper_data_generation_not_policy_training'}
-    (ROOT / 'runs/latest-gpu0-job.json').write_text(json.dumps(pointer, indent=2))
+    job_pointer.write_text(json.dumps(pointer, indent=2))
     env = {**os.environ, 'CUDA_VISIBLE_DEVICES': gpu, 'JAX_PLATFORMS': 'cpu',
            'DOUBLE_ARM_ROOT': str(ROOT), 'TASK': 'tidy_table',
            'OMP_NUM_THREADS': '4', 'OPENBLAS_NUM_THREADS': '4', 'MKL_NUM_THREADS': '4',
@@ -150,14 +164,14 @@ def main():
             query = subprocess.check_output(['nvidia-smi', '--query-compute-apps=gpu_uuid,pid',
                                              '--format=csv,noheader'], text=True)
             if any(row.split(',')[0].strip() == gpu for row in query.splitlines()):
-                raise RuntimeError('GPU0 occupied by another process; no kill or fallback')
+                raise RuntimeError('Selected GPU occupied by another process; no kill or fallback')
             required = min(args.shard_size, args.target - len(episodes))
             seed = args.seed_start + index
             log = c / f'shard-{index:03d}-seed-{seed}.log'
             with log.open('x') as handle:
                 child = subprocess.Popen([
                     'timeout', '--signal=TERM', '--kill-after=120s', str(args.shard_timeout + 300),
-                    'taskset', '-c', '0-15', 'bash', str(script / 'run_official_generation.sh')],
+                    'taskset', '-c', cpu_affinity, 'bash', str(script / 'run_official_generation.sh')],
                     stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                     env={**env, 'TARGET_SUCCESSES': str(required), 'GENERATION_SEED': str(seed)},
                     start_new_session=True)

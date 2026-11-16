@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from resource_allocation import ALLOWED_GPU_UUID, GPU_UUIDS_BY_INDEX, resolve_gpu, require_dual_gpu_allocation
-from run_paper_generation_shards import generation_run, unique_new_episodes
+from run_paper_generation_shards import generation_run, unique_new_episodes, job_paths
 
 
 class ParallelAllocationTests(unittest.TestCase):
@@ -51,6 +51,16 @@ class ParallelAllocationTests(unittest.TestCase):
         self.save()
         with self.assertRaises(ValueError):
             resolve_gpu(self.root, '0')
+
+    def test_auxiliary_gpu1_does_not_overwrite_gpu0_pointers_or_affinity(self):
+        c0, j0, cpu0 = job_paths(self.root, '0')
+        c1, j1, cpu1 = job_paths(self.root, '1')
+        self.assertNotEqual(c0, c1)
+        self.assertNotEqual(j0, j1)
+        self.assertEqual(j1.name, 'latest-gpu1-job.json')
+        self.assertEqual((cpu0, cpu1), ('0-15', '88-103'))
+        with self.assertRaises(ValueError):
+            job_paths(self.root, '0,1')
 
     def test_unique_episodes_are_not_double_counted(self):
         seen = {'old'}

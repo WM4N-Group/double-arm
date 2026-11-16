@@ -266,6 +266,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--campaign', type=Path, required=True)
     parser.add_argument('--check-only', action='store_true')
+    parser.add_argument('--accumulator-placement', choices=('device', 'host'), default='device')
     parser.add_argument('--initial-params', type=Path)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -284,7 +285,9 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     lock = (ROOT / 'runs/pi0-accumulation-preflight.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    inspect_release(args.campaign)  # Recheck after acquiring the preflight lock.
+    gpu_lock = (ROOT / 'runs' / f'gpu-{ALLOWED_GPU_UUID}.lock').open('a')
+    fcntl.flock(gpu_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    inspect_release(args.campaign)  # Recheck after acquiring both job locks.
     # Set exact device restrictions BEFORE importing anything GPU-capable.
     os.environ.update({
         'CUDA_VISIBLE_DEVICES': ALLOWED_GPU_UUID, 'JAX_PLATFORMS': 'cuda',
@@ -301,7 +304,11 @@ def main():
     })
     sys.path.insert(0, str(ROOT / 'src/openpi-215abfb/src'))
     try:
-        run_probe(args.campaign, args.initial_params, args.output)
+        if args.accumulator_placement == 'host':
+            from preflight_pi0_host_accumulation import run_host_probe
+            run_host_probe(args.campaign, args.initial_params, args.output)
+        else:
+            run_probe(args.campaign, args.initial_params, args.output)
     except BaseException as error:
         # Include import/initialization failures that precede the full report.
         if not args.output.exists():

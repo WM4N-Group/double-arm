@@ -23,6 +23,10 @@ export OMNI_KIT_ACCEPT_EULA=YES OMNI_KIT_ALLOW_ROOT=1
 RUN_DIR=$(mktemp -d "$DOUBLE_ARM_ROOT/runs/${TASK}-official-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 echo "RUN_DIR=$RUN_DIR"
 printf '%s\n' "$RUN_DIR" > "$DOUBLE_ARM_ROOT/runs/latest-official-generation.txt"
+# Serialize shared config/scene preparation across independent GPU workers.
+# The simulator uses its private copied config after this lock is released.
+exec 9> "$DOUBLE_ARM_ROOT/cache/official-generation-prepare.lock"
+flock -x 9
 bash "$SCRIPT_DIR/ensure_runtime_files.sh"
 cd "$MOMAGEN_ROOT"
 python momagen/scripts/generate_configs.py > "$RUN_DIR/config-generation.log" 2>&1
@@ -52,6 +56,8 @@ report={'mode':'official_upstream_entrypoint_unmodified_config','task':task,'ran
         'upstream_revisions':{str(p.relative_to(root)) if p!=root else '.':subprocess.check_output(['git','-C',str(p),'rev-parse','HEAD'],text=True).strip() for p in [root,root/'BEHAVIOR-1K',root/'robomimic']}}
 (run/'manifest.json').write_text(json.dumps(report,indent=2))
 PY
+flock -u 9
+exec 9>&-
 set +e
 timeout --signal=TERM --kill-after=90s "${GENERATION_TIMEOUT_SECONDS:-3600}" \
     python -u momagen/scripts/generate_dataset.py --config "$RUN_DIR/config.json" \
