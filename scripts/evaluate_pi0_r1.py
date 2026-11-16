@@ -7,6 +7,7 @@ openpi service on localhost. Only real RGB + proprio + prompt enter pi0.
 import argparse
 from collections import deque
 import json
+import hashlib
 import os
 from pathlib import Path
 import time
@@ -21,6 +22,7 @@ from momagen_pi0_schema import camera_keys,rgb_image,PROMPT
 from object_pose_audit import ObjectPoseAudit
 from pi0_rpc import infer_local
 from pi0_base_targets import absolute_base_to_native
+from rollout_motion_metrics import cup_motion_metrics
 from state_policy_features import as_numpy
 
 
@@ -64,7 +66,8 @@ def main():
             'assisted_constraint_seen':False,'object_pose_write_count':0,'upstream_finger_friction':4.0,
             'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[],
             'inference_platform':None,'real_time_control_claim':False,'action_representation':args.action_representation,
-            'low_level_robot_odometry_used':args.action_representation=='absolute_base'}
+            'low_level_robot_odometry_used':args.action_representation=='absolute_base',
+            'evaluation_source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     def save():
         tmp=args.output/'result.tmp';tmp.write_text(json.dumps(result,indent=2));tmp.replace(args.output/'result.json')
     save();writer=None;audit=None;failed=False;started=time.monotonic()
@@ -81,12 +84,14 @@ def main():
         predicate=env.env.task._termination_conditions['predicate'];predicate.reset(env.env.task,env.env)
         if env.is_success()['task']:raise ValueError('Initial state already satisfies task')
         cup=env.env.task.object_scope['teacup.n.02_1'].unwrapped
-        initial_cup_z=float(as_numpy(cup.get_position_orientation()[0])[2])
+        initial_cup_position=as_numpy(cup.get_position_orientation()[0]).copy()
+        initial_cup_z=float(initial_cup_position[2])
         max_cup_lift=0.0;cup_grasped=False
         obs,_=env.get_obs_IL();cameras=camera_keys(obs);audit=ObjectPoseAudit(env.env.task.object_scope)
         writer=imageio.get_writer(str(args.output/(args.demo+'.mp4')),fps=15,codec='libx264',quality=7,macro_block_size=2)
         try:font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',15)
         except OSError:font=ImageFont.load_default()
+        cup_positions=[];post_base_positions=[];cup_grasp_flags=[]
         queued=deque();states=[];actions=[];targets=[];base_clipped=0;path=[];grasp=[False,False];stable=0;rpc=[];clipped=0
         for step in range(args.max_steps):
             audit.step=step
@@ -120,8 +125,14 @@ def main():
             if args.grasping_mode=='physical' and assisted:raise ValueError('Assisted attachment appeared in physical eval')
             if args.grasping_mode=='physical' and audit.events:raise ValueError('Task-object explicit pose write during closed-loop eval')
             for i,name in enumerate(('grasp_left','grasp_right')):grasp[i]|=int(as_numpy(obs[name]).reshape(-1)[0])==1
-            cup_grasped|=int(env.robot.is_grasping(arm='left',candidate_obj=cup))==1
-            max_cup_lift=max(max_cup_lift,float(as_numpy(cup.get_position_orientation()[0])[2])-initial_cup_z)
+            cup_grasp_now=int(env.robot.is_grasping(arm='left',candidate_obj=cup))==1
+            cup_grasped|=cup_grasp_now
+            # Evaluation-only pose/contact audit. These arrays NEVER enter the
+            # RPC request or influence model actions / stopping conditions.
+            cup_position=as_numpy(cup.get_position_orientation()[0]).copy()
+            cup_positions.append(cup_position);cup_grasp_flags.append(cup_grasp_now)
+            post_base_positions.append(as_numpy(obs['base_link_pose'])[:3].copy())
+            max_cup_lift=max(max_cup_lift,float(cup_position[2])-initial_cup_z)
             success=bool(env.is_success()['task']);stable=stable+1 if success else 0
             if step%2==0:
                 primary=rgb_image(env.env._external_sensors['external_sensor2'].get_obs()[0]['rgb'])
@@ -138,9 +149,12 @@ def main():
             'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
             'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),
             'cup_specific_grasp_seen':cup_grasped,'max_cup_lift_m':max_cup_lift}
+        episode.update(cup_motion_metrics(cup_positions,post_base_positions,cup_grasp_flags,initial_cup_position))
         result['episodes'].append(episode);result.update(object_pose_write_count=len(audit.events),inference_calls=len(rpc),clipped_action_steps=clipped,clipped_native_base_steps=base_clipped,wall_clock_seconds=time.monotonic()-started)
         result['task_success']=stable>=30 and any(grasp) and cup_grasped and max_cup_lift>.03 and episode['base_path_length_m']>.5
-        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions,model_action_targets=np.stack(targets))
+        np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states),actions=np.stack(actions),base_positions=positions,model_action_targets=np.stack(targets),
+            post_step_cup_positions=np.stack(cup_positions),post_step_base_positions=np.stack(post_base_positions),
+            post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),initial_cup_position=initial_cup_position)
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     except BaseException as error:
         failed=True;result.update(error=repr(error),task_success=False)

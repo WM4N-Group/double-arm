@@ -116,15 +116,41 @@ class SingleGPUAllocationContract(unittest.TestCase):
     def test_only_the_allocated_gpu_can_be_selected(self):
         import tempfile,json
         sys.path.insert(0,str(ROOT/'scripts'))
-        from resource_allocation import resolve_gpu,require_dual_gpu_allocation
+        from resource_allocation import resolve_gpu,require_dual_gpu_allocation,ALLOWED_GPU_UUID
         with tempfile.TemporaryDirectory() as directory:
             root=pathlib.Path(directory);(root/'runs').mkdir()
-            (root/'runs/RESOURCE_ALLOCATION.json').write_text(json.dumps({'max_gpu_count':1,'allowed_gpu_index':1,'allowed_gpu_uuid':'GPU-owned'}))
-            self.assertEqual(resolve_gpu(root),'GPU-owned')
-            self.assertEqual(resolve_gpu(root,'1'),'GPU-owned')
-            self.assertEqual(resolve_gpu(root,'GPU-owned'),'GPU-owned')
+            (root/'runs/RESOURCE_ALLOCATION.json').write_text(json.dumps({'max_gpu_count':1,'allowed_gpu_index':1,'allowed_gpu_uuid':ALLOWED_GPU_UUID}))
+            self.assertEqual(resolve_gpu(root),ALLOWED_GPU_UUID)
+            self.assertEqual(resolve_gpu(root,'1'),ALLOWED_GPU_UUID)
+            self.assertEqual(resolve_gpu(root,ALLOWED_GPU_UUID),ALLOWED_GPU_UUID)
             for requested in ('0','0,1','GPU-reserved'):
                 with self.assertRaises(ValueError):resolve_gpu(root,requested)
+            with self.assertRaises(ValueError):require_dual_gpu_allocation(root)
+
+    def test_missing_or_malformed_allocation_never_defaults_to_gpu_zero(self):
+        import tempfile,json
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from resource_allocation import resolve_gpu,ALLOWED_GPU_UUID
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory);(root/'runs').mkdir()
+            with self.assertRaises(ValueError):resolve_gpu(root)
+            path=root/'runs/RESOURCE_ALLOCATION.json'
+            for config in ({},[],{'max_gpu_count':2},{'max_gpu_count':True},
+                           {'max_gpu_count':1,'allowed_gpu_index':0,'allowed_gpu_uuid':ALLOWED_GPU_UUID},
+                           {'max_gpu_count':1,'allowed_gpu_index':1,'allowed_gpu_uuid':'GPU-foreign'}):
+                path.write_text(json.dumps(config))
+                with self.subTest(config=config),self.assertRaises(ValueError):resolve_gpu(root)
+            path.write_text('{malformed')
+            with self.assertRaises(ValueError):resolve_gpu(root)
+
+    def test_old_dual_controller_cannot_revive_from_missing_or_changed_config(self):
+        import tempfile,json
+        sys.path.insert(0,str(ROOT/'scripts'))
+        from resource_allocation import require_dual_gpu_allocation
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory);(root/'runs').mkdir()
+            with self.assertRaises(ValueError):require_dual_gpu_allocation(root)
+            (root/'runs/RESOURCE_ALLOCATION.json').write_text(json.dumps({'max_gpu_count':2}))
             with self.assertRaises(ValueError):require_dual_gpu_allocation(root)
 
     def test_object_pose_audit_observes_but_does_not_move_objects(self):
