@@ -85,7 +85,7 @@ def main():
     # Keep completed transitions even when a safety check aborts the rollout.
     # Failed/in-flight commands are never padded into a completed trace.
     cup_positions=[];post_base_positions=[];cup_grasp_flags=[]
-    queued=deque();states=[];actions=[];targets=[];root_poses=[];base_clipped=0;path=[]
+    queued=deque();states=[];actions=[];targets=[];proposals=[];root_poses=[];base_clipped=0;path=[]
     grasp=[False,False];stable=0;rpc=[];clipped=0;max_cup_lift=0.0;cup_grasped=False
     step=-1;pose=None;initial_cup_position=None
     def finalize_episode(aborted=False):
@@ -105,6 +105,7 @@ def main():
             and max_cup_lift>.03 and episode['base_path_length_m']>.5)
         np.savez_compressed(args.output/(args.demo+'-trace.npz'),observations=np.stack(states[:n]),
             actions=np.stack(actions[:n]),base_positions=positions,model_action_targets=np.stack(targets[:n]),
+            model_proposed_targets=np.stack(proposals[:n]),
             pre_step_root_poses=np.stack(root_poses[:n]),post_step_cup_positions=np.stack(cup_positions),
             post_step_base_positions=np.stack(post_base_positions),post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),
             initial_cup_position=initial_cup_position)
@@ -197,7 +198,8 @@ def main():
                 result['sampling_noise']=info.get('sampling_noise')
                 if info.get('action_representation','native')!=args.action_representation:raise ValueError('Wrong action representation service')
                 queued.extend(prediction[:args.execute_steps]);rpc.append({'step':step,'inference_seconds':info['inference_seconds'],'inference_platform':platform})
-            proposed=np.asarray(queued.popleft(),np.float32);target=np.clip(proposed,lower,upper)
+            proposed=np.asarray(queued.popleft(),np.float32);proposals.append(proposed.copy())
+            target=np.clip(proposed,lower,upper)
             clipped+=int(np.any(target!=proposed));targets.append(target.copy())
             position,quaternion=env.robot.get_position_orientation()
             pose=np.concatenate([as_numpy(position),as_numpy(quaternion)])
