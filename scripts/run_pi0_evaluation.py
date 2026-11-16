@@ -15,7 +15,8 @@ import subprocess
 import sys
 import time
 from resource_allocation import resolve_gpu
-from pi0_review_contract import physical_task_passed
+from pi0_review_contract import physical_task_passed,training_split_physical_task_passed
+from evaluation_split_contract import verify_evaluation_episode
 
 
 def read(path,default=None):
@@ -28,6 +29,8 @@ def main():
     p.add_argument('--root',type=Path,default=Path('/mnt/yuanyue/double-arm'))
     p.add_argument('--checkpoint',type=Path,required=True)
     p.add_argument('--source-dataset',type=Path,required=True)
+    p.add_argument('--demo',default='demo_0')
+    p.add_argument('--evaluation-split',choices=['validation','train'],default='validation')
     p.add_argument('--training-provenance',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--hours',type=float,default=2)
@@ -56,12 +59,15 @@ def main():
     import numpy as np
     if out.exists():raise FileExistsError(out)
     if not str(out).startswith(str(root/'runs')+'/'):raise ValueError('Remote output required')
+    split_provenance=root/'data/pi0/lerobot/momagen/r1_tidy_table_holdout_v1/momagen-provenance.json' if args.evaluation_split=='validation' else args.training_provenance
+    verify_evaluation_episode(read(split_provenance,{}),args.source_dataset,args.demo,args.evaluation_split)
     gpu=resolve_gpu(root);out.mkdir();deadline=time.monotonic()+args.hours*3600;script=Path(__file__).resolve().parent
     state={'stage':'preparing_pi0_native_evaluation','checkpoint':str(args.checkpoint),'gpu_uuid':gpu,
            'max_gpu_count':1,'task_success':False,'started_at':datetime.now(timezone.utc).isoformat(),
            'physical_parameters_calibrated_to_real_robot':False,'inference_platform':args.inference_platform,
            'execute_steps':execute_steps,'real_time_control_claim':False,
            'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation,
+           'evaluation_split':args.evaluation_split,'source_demo':args.demo,
            'grasping_condition':args.grasping_mode,'requested_reset_physics_steps':args.reset_settle_steps}
     def save(**kwargs):
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat());tmp=out/'status.tmp'
@@ -116,7 +122,7 @@ def main():
         from momagen_pi0_schema import camera_keys,rgb_image,PROMPT
         # Warm up with a real heldout reset image, not synthetic replacement.
         with h5py.File(args.source_dataset) as file:
-            group=file['data/demo_0'];keys=camera_keys(group['obs'])
+            group=file['data/'+args.demo];keys=camera_keys(group['obs'])
             warm={name:rgb_image(group['obs'][key][0]) for name,key in keys.items()}
             warm.update(state=group['obs/prop_state'][0],prompt=PROMPT)
         infer_local(warm,token.read_text().strip(),timeout=min(600,max(1,int(deadline-time.monotonic()))))
@@ -132,7 +138,7 @@ def main():
         # the inference service keeps its separate openpi environment.
         simulation=launch(['bash','-c','set -euo pipefail; source "$1"; shift; exec "$@"',
             'pi0-simulator',str(script/'server_env.sh'),str(root/'envs/momagen/bin/python'),'-u',str(script/'evaluate_pi0_r1.py'),
-            '--dataset',str(args.source_dataset),'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
+            '--dataset',str(args.source_dataset),'--demo',args.demo,'--evaluation-split',args.evaluation_split,'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
             '--execute-steps',str(execute_steps),'--action-representation',args.action_representation,
             '--reset-settle-steps',str(args.reset_settle_steps)],out/'physical-rollout.log')
@@ -144,7 +150,10 @@ def main():
         result=read(out/'physical-rollout/result.json',{})
         eligible=simulation.returncode==0 and physical_task_passed(result)
         author_diagnostic=args.grasping_mode=='configured'
-        save(stage='pi0_author_config_diagnostic_completed' if author_diagnostic else ('pi0_physical_closed_loop_success_review_required' if eligible else 'pi0_physical_closed_loop_failed'),
+        training_diagnostic=args.evaluation_split=='train'
+        save(stage='pi0_training_split_diagnostic_completed' if training_diagnostic else 'pi0_author_config_diagnostic_completed' if author_diagnostic else ('pi0_physical_closed_loop_success_review_required' if eligible else 'pi0_physical_closed_loop_failed'),
+             training_split_physical_task_success=bool(training_diagnostic and training_split_physical_task_passed(result)),
+             training_split_author_config_task_success=bool(training_diagnostic and author_diagnostic and result.get('task_success') is True),
              author_config_task_success=bool(author_diagnostic and result.get('task_success') is True),
              task_success=bool(eligible),result=result,video=str(out/'physical-rollout/demo_0.mp4'))
         # Review export has its own status: artifact errors must not change the
@@ -163,7 +172,7 @@ def main():
                 export_code=124
             save(review_export_exit_status=export_code,
                  review_directory=str(out/'review') if export_code==0 and (out/'review/review.json').is_file() else None)
-        return 0 if eligible or (author_diagnostic and simulation.returncode==0) else 7
+        return 0 if eligible or ((author_diagnostic or training_diagnostic) and simulation.returncode==0) else 7
     except Exception as error:
         save(stage='pi0_deployment_or_evaluation_failed',error=repr(error),task_success=False)
         raise

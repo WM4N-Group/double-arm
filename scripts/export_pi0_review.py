@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 from export_demo_review import read_video,sha256_file
-from pi0_review_contract import fingerprint_checkpoint,physical_task_passed
+from pi0_review_contract import fingerprint_checkpoint,physical_task_passed,training_split_physical_task_passed
 
 
 def main():
@@ -42,6 +42,8 @@ def main():
     label='PI0 PHYSICAL SUCCESS - MANUAL REVIEW PENDING' if passed else 'PI0 FAILED ATTEMPT - NOT A SUCCESS DEMO'
     if episode.get('aborted'):label='PI0 ABORTED ATTEMPT - NOT A SUCCESS DEMO'
     if result.get('grasping_mode')!='physical':label='PI0 ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
+    if episode.get('split')=='train':
+        label='PI0 TRAIN-SPLIT PHYSICAL DIAGNOSTIC - NOT HELDOUT SUCCESS' if result.get('grasping_mode')=='physical' else 'PI0 TRAIN-SPLIT ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS'
     rollout=args.evaluation/'physical-rollout'
     import numpy as np
     from PIL import Image,ImageDraw,ImageFont
@@ -73,6 +75,7 @@ def main():
     for index,image in enumerate(frames):sheet.paste(image,((index%3)*width,(index//3)*height))
     sheet.save(args.output/'contact-sheet.jpg',quality=88)
     review={'label':label,'aborted':episode.get('aborted',False),'error':result.get('error'),'algorithm':result['algorithm'],'task':'r1_tidy_table_D0','physical_task_acceptance':passed,
+        'evaluation_split':episode.get('split'),'training_split_physical_task_success':training_split_physical_task_passed(result),
         'author_assisted_task_success':result.get('grasping_mode')!='physical' and result.get('task_success') is True,
         'manual_video_review_required':True,'inference_platform':result.get('inference_platform'),
         'real_time_control_claim':False,'checkpoint_fingerprint':fingerprint['sha256'],'checkpoint':str(checkpoint),

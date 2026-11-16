@@ -98,3 +98,27 @@ MAE为0–255像素尺度。人工查看三图×六排图，0刷新确实看到�
 - 输出：`/mnt/yuanyue/double-arm/runs/pi0-momagen-20261115-233529/pi0-native-synced20-physical-evaluation-20261116-151026/`。
 - V2比较工作流保留独立失败结果，`followup_evaluation`只链接本项对照，不覆盖V2失败记录。
 - 仍只占GPU1；2小时是单项卡死保护，不再是授权期限。不需要用户再次批准时间窗口。
+
+## 16:14–16:20 CST：原生编码同步后物理对照也失败，切换到训练条件诊断
+
+原生动作检查点＋20次物理同步的heldout评估已于16:01结束：
+
+- 完成 **3000步、300次推理**，没有异常中止，但物理任务失败；底盘路径6.1912m。
+- 无杯子特定抓取、持续成功0帧、抓持运输0m。最大杯子抬升约1.50mm，不达到3cm门槛；杯子累计位移约1.58cm，最大单步约5.12mm，不能把这些细微运动称为抓取运输或单独判定瞬移。
+- 0 assisted约束、0显式任务物体位姿写入。失败视频已正常导出，六帧接触表已检查，仍明确标记FAILED。
+- **实际独立部署**初始RGB MAE（头 / 左腕 / 右腕）为 **3.788 / 4.522 / 4.396**，同步有效。该失败不再能单靠首帧相机错位解释。
+- 轨迹中左夹爪确实发出了2184步负值闭合命令，原始网络输出也有2184步负值，不是未发送闭合命令；但没有形成杯子抓取。这不能单独区分EE偏离 / 时序错误 / 泛化或物理域差距。
+
+已保存 `native-gripper-and-input-audit.json`。源动作仅在离线统计时读作参考，未输入模型、未控制仿真。
+
+### 下一项已启动：训练回合＋作者配置的原版π₀闭环诊断
+
+16:19启动PID112429，使用同一原生30k检查点、20次同步和训练集中首条demo_0的初态，恢复其作者assisted配置。目的：先确认策略在自身训练回合与来源条件下是否能完成，再分别区分物理抓取与heldout泛化差距。**不是训练新策略、不是教师动作回放、不是规则控制，更不能作为heldout物理成功。**
+
+- 源：`tidy_table-official-20261115-233529-SvPgea/generated/demo_src_r1_tidy_table_task_D0/demo.hdf5`，train/demo_0（1714帧）。
+- 输出：`/mnt/yuanyue/double-arm/runs/pi0-momagen-20261115-233529/pi0-native-training-author-diagnostic-20261116-161902/`。
+- 新增显式`--evaluation-split`及`--demo`：调度器 / 模拟器均核对source+demo属于所声明split的provenance，未匹配或重复匹配拒绝启动；不再能把训练回合静默写成validation。
+- 训练物理诊断与验证物理验收共用相同物理条件，但split门槛严格分离。assisted来源条件另有`training_split_author_config_task_success`；主`task_success`仍只代表heldout物理通过。
+- 视频导出对训练assisted诊断强制标记 **TRAIN-SPLIT ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS**。即使此项成功，也不能冒充最终demo。
+- 若训练来源条件仍失败，优先检查源动作回放 / 控制语义及训练有效曝光；若通过，再单独交叉训练物理、heldout assisted条件，不靠同时改多项参数去断言唯一根因。
+- 本地91项测试通过（22项跳过）；服务器split来源、验收契约及原模拟器环境的部分轨迹夹具测试通过。当前只运行这一诊断，GPU1开放时间预算保持不变。

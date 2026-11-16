@@ -24,12 +24,14 @@ from pi0_rpc import infer_local
 from pi0_base_targets import absolute_base_to_native
 from rollout_motion_metrics import cup_motion_metrics
 from state_policy_features import as_numpy
+from evaluation_split_contract import verify_evaluation_episode
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--dataset',type=Path,required=True)
     p.add_argument('--demo',default='demo_0')
+    p.add_argument('--evaluation-split',choices=['validation','train'],default='validation')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--checkpoint',type=Path,required=True)
     p.add_argument('--token-file',type=Path,required=True)
@@ -65,6 +67,8 @@ def main():
     for name in ('ACCEPT_NVIDIA_EULA','ACCEPT_BEHAVIOR_DATASET_TERMS'):
         if os.environ.get(name,flags.get(name))!='YES':raise ValueError('Previously accepted server license flags required')
     os.environ['OMNI_KIT_ACCEPT_EULA']='YES';torch.set_num_threads(4);torch.set_num_interop_threads(1)
+    evaluation_provenance=root/'data/pi0/lerobot/momagen'/('r1_tidy_table_train_v1' if args.evaluation_split=='train' else 'r1_tidy_table_holdout_v1')/'momagen-provenance.json'
+    verify_evaluation_episode(json.loads(evaluation_provenance.read_text()),args.dataset,args.demo,args.evaluation_split)
     with h5py.File(args.dataset) as file:
         meta=json.loads(file['data'].attrs['env_args']);g=file['data/'+args.demo];initial=g['states'][0]
     meta['env_kwargs']['init_curobo']=False
@@ -72,6 +76,7 @@ def main():
     result={'mode':'reset_observation_audit_only' if args.snapshot_only else 'closed_loop_neural_policy','algorithm':'official_openpi_pi0_lora32','privileged_state':False,
             'checkpoint':str(args.checkpoint),'planner_enabled':False,'teacher_action_reads':0,'initial_state_load_count':1,
             'input_modalities':['head_rgb','left_wrist_rgb','right_wrist_rgb','proprioception','instruction'],
+            'evaluation_split':args.evaluation_split,'source_demo':args.demo,
             'execute_steps':args.execute_steps,'predicted_horizon':50,'grasping_mode':args.grasping_mode,
             'assisted_constraint_seen':False,'object_pose_write_count':0,'upstream_finger_friction':4.0,
             'physical_parameters_calibrated_to_real_robot':False,'task_success':False,'episodes':[],
@@ -92,7 +97,7 @@ def main():
         n=len(cup_positions)
         if not n:return
         positions=np.stack(path[:n])
-        episode={'demo':args.demo,'split':'validation','initial_state_load_count':1,'steps':n,
+        episode={'demo':args.demo,'split':args.evaluation_split,'initial_state_load_count':1,'steps':n,
             'aborted':aborted,'sustained_success':not aborted and stable>=30,'stable_success_frames':stable,
             'grasped_ever':grasp,'base_path_length_m':float(np.linalg.norm(np.diff(positions[:,:2],axis=0),axis=1).sum()),
             'final_goal_status':str(predicate.goal_status),'object_pose_write_count':len(audit.events),

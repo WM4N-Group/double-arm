@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from pi0_review_contract import fingerprint_checkpoint,physical_task_passed
+from pi0_review_contract import fingerprint_checkpoint,physical_task_passed,training_split_physical_task_passed
 
 
 class Pi0ReviewTests(unittest.TestCase):
@@ -39,6 +39,9 @@ class Pi0ReviewTests(unittest.TestCase):
             'episodes':[{'initial_state_load_count':1,'split':'validation','sustained_success':True,'stable_success_frames':30,
                 'cup_specific_grasp_seen':True,'max_cup_lift_m':.04,'base_path_length_m':.6,'object_pose_write_count':0}]}
         self.assertTrue(physical_task_passed(result))
+        trained=copy.deepcopy(result);trained['episodes'][0]['split']='train'
+        self.assertFalse(physical_task_passed(trained));self.assertTrue(training_split_physical_task_passed(trained))
+        trained['assisted_constraint_seen']=True;self.assertFalse(training_split_physical_task_passed(trained))
         for field,value in [('error','safety abort'),('task_success',False),('assisted_constraint_seen',True),('object_pose_write_count',1),('teacher_action_reads',1)]:
             changed=copy.deepcopy(result);changed[field]=value;self.assertFalse(physical_task_passed(changed))
         for field,value in [('aborted',True),('cup_specific_grasp_seen',False),('max_cup_lift_m',.02),('base_path_length_m',.4),('initial_state_load_count',2),('stable_success_frames',29)]:

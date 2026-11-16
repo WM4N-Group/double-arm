@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def physical_task_passed(result):
+def _physical_task_conditions(result,split):
     episodes=result.get('episodes',[])
     if len(episodes)!=1:return False
     episode=episodes[0]
@@ -21,13 +21,22 @@ def physical_task_passed(result):
         and result.get('assisted_constraint_seen') is False
         and result.get('object_pose_write_count')==0
         and episode.get('initial_state_load_count')==1
-        and episode.get('split')=='validation'
+        and episode.get('split')==split
         and episode.get('sustained_success') is True
         and episode.get('stable_success_frames',0)>=30
         and episode.get('cup_specific_grasp_seen') is True
         and episode.get('max_cup_lift_m',0)>.03
         and episode.get('base_path_length_m',0)>.5
         and episode.get('object_pose_write_count')==0)
+
+
+def physical_task_passed(result):
+    return _physical_task_conditions(result,'validation')
+
+
+def training_split_physical_task_passed(result):
+    # Same physical gates, but explicitly NOT heldout acceptance.
+    return _physical_task_conditions(result,'train')
 
 
 def fingerprint_checkpoint(checkpoint):

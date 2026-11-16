@@ -180,6 +180,18 @@ class Pi0SourceContract(unittest.TestCase):
         self.assertEqual(source.count('og.sim.load_state('),1)
         self.assertIn('not args.snapshot_only',source)
 
+    def test_training_episode_diagnostics_have_explicit_split_and_no_heldout_relabelling(self):
+        evaluator=(ROOT/'scripts/evaluate_pi0_r1.py').read_text()
+        self.assertIn("'split':args.evaluation_split",evaluator)
+        self.assertIn('verify_evaluation_episode(',evaluator)
+        runner=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
+        self.assertIn("'--evaluation-split',args.evaluation_split",runner)
+        self.assertIn("group=file['data/'+args.demo]",runner)
+        self.assertIn('training_split_author_config_task_success=',runner)
+        export=(ROOT/'scripts/export_pi0_review.py').read_text()
+        self.assertIn('PI0 TRAIN-SPLIT PHYSICAL DIAGNOSTIC - NOT HELDOUT SUCCESS',export)
+        self.assertIn('PI0 TRAIN-SPLIT ASSISTED DIAGNOSTIC - NOT PHYSICAL SUCCESS',export)
+
     def test_evaluation_exports_separately_labelled_review(self):
         source=(ROOT/'scripts/run_pi0_evaluation.py').read_text()
         self.assertIn('physical_task_passed(result)',source)

@@ -24,7 +24,7 @@ class RolloutTraceTests(unittest.TestCase):
         function=next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef) and node.name=='finalize_episode')
         with tempfile.TemporaryDirectory() as directory:
             n=3;result={};saved=[]
-            scope={'np':np,'json':json,'args':SimpleNamespace(demo='demo_0',output=Path(directory)),
+            scope={'np':np,'json':json,'args':SimpleNamespace(demo='demo_0',evaluation_split='validation',output=Path(directory)),
                 'cup_positions':[np.array([0.,0.,.1])]*n,'post_base_positions':[np.array([float(i),0.,0.]) for i in range(n)],
                 'cup_grasp_flags':[True]*n,'initial_cup_position':np.zeros(3),
                 'states':[np.full(21,i) for i in range(n+1)],'actions':[np.full(21,i) for i in range(n+1)],
