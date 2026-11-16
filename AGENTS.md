@@ -23,6 +23,12 @@
 - The isolated batch64 accumulation preflight can still use GPU1 **after its full coverage/evaluation workflow releases it**, while GPU0 generation continues. It remains unvalidated; do not change its native mean/std smoke into a paper-aligned training claim.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### Verified stage transition (2026-11-17 00:06 CST)
+
+- Coverage v3's **90,000 additional formal updates are now COMPLETE** (trainer exit0, final89999 committed2026-11-16 23:47:51 CST, `ADAPTER_CONTRACTS_SAVED` present). Final native/mean-std/batch1 contract and actual normalization SHA256 checked. This is still the diagnostic weights-warm-start/fresh-optimizer experiment, not paper-scale training or task success.
+- Controller automatically started `coverage-training-author-diagnostic/` at2026-11-16 23:48 CST using final89999, TRAIN/demo_0, configured author-assisted condition, sync20. At00:06 it was still running (simPID145860; last observed progress step700, no grasp yet). The live `result.json` with empty episodes is an INITIAL placeholder, not a completed failure/result. No heldout physical result yet; do not start batch64 preflight before this whole evaluation chain releasesGPU1.
+- GPU0 official generator is really executing on its authorized UUID (simPID143710). At00:06 official log reported4 successes /6 trials and4 closed temporary HDF5 candidates. First25-episode shard is not finalized or audited yet; controller `verified_unique_demos=0` is correct, not a contradiction. Do not count log successes as1000 finalized unique demos. Both workflows remain active; no restart needed.
+
 ## Current server allocation (resumed 2026-11-15)
 
 - The user resumed this project with **one GPU only**. We explicitly selected physical GPU1 (second card), UUID `GPU-50e5d38d-2825-e379-f537-7f0bf4609aba`; GPU0 is reserved for higher-priority work.

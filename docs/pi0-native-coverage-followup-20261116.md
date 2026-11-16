@@ -77,3 +77,14 @@
 - 20次真实梯度smoke完整结束，退出码0，检查点19与适配器契约均已提交；日志有 `ADAPTER_CONTRACTS_SAVED`。例如step0 loss0.0005、grad_norm0.1699，step10 loss0.0278，不能将个别batch损失当成任务成功率。
 - 控制器已启动**额外90k正式训练**，`training=in_progress`，timeout父PID118863，实际JAX训练进程待后续核实。此时正在新进程初始化，不能提前报告已完成多少正式梯度或满卡利用率。
 - smoke保存检查点耗时约169秒，说明远端文件系统I/O可能影响总耗时；不据4.4步/秒理想值承诺完成时间。下一步自动完成正式训练、训练来源条件闭环，再通过后进入heldout physical验收。
+
+## 5. 90k正式训练已完成，进入真实来源条件评估（2026-11-17 00:06 CST核实）
+
+- 原trainer退出0，额外90,000正式更新结束；最终step89999的Orbax提交时间为 **2026-11-16 23:47:51.492 CST**，控制器随后于23:48自动启动评估。
+- `native_coverage_finetuning.log`实际有末段step89990日志和`ADAPTER_CONTRACTS_SAVED`；final89999元数据已有commit timestamp，适配器契约为original pi0、native、mean/std、batch1、training_steps90000。实际saved norm stats SHA256与契约一致。
+- final：`/mnt/yuanyue/double-arm/runs/pi0-checkpoints/pi0_r1_tidy_table_lora32/pi0-native-coverage-v3-20261116-172526/89999`。来源仍是原30k权重热启动、fresh optimizer，旧checkpoint未覆盖。
+- 当前`coverage-training-author-diagnostic/`使用这个新checkpoint、train/demo_0、作者configured/assisted条件与sync20。推理CPU、仿真GPU1，00:06仍在运行，最后读取到step700、尚无grasp报告；这不是最终结论。
+- 运行中的`physical-rollout/result.json`暂时保留初始化空`episodes`及默认字段，不能当作已完成的失败，也不能拿它判断实际reset刷新次数或最终推理平台。最终结果需等待完成写回和review。
+- 来源条件通过才会继续heldout physical；即使train-assisted通过，也不是用户的heldout物理成功demo。没有提前启动GPU累积测试，没有新增正式训练。
+
+并行GPU0数据生成已经进入真实navigation/manipulation；00:06日志为4次source-generation成功 / 6次尝试，4个关闭的tmp HDF5。**首个25成功shard未finalize，结构与去重尚未验收，因此新的verified unique count仍为0。** 它不是学得π₀评估结果，不能与GPU1的policy结果混合计数。
