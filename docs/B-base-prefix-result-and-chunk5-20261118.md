@@ -76,3 +76,7 @@ GPU0原seed10006生成保持，worker150/261496与最后global QA180/314090分�
 ## 测试
 
 本地198项150通过/48依赖skip；本次新routing2项、actual completion2项，以及observer7项、原profile路由3项共14项在服务器CPU通过。没有安装/升级环境。真实live集成结果仍等待。
+
+## 07:26最终结果更新
+
+Execute5 live episode于06:50完成3000步/600calls，未形成cup grasp、max lift约4mm，task失败。实际6021份新增无辅助样本全已知0，说明只读审计live集成本轮确已运行；不是策略修复通过。匹配失败视频与诊断边界见`docs/B-chunk5-failed-result-20261118.md`。整个流程释放GPU1后，该卡已转独立官方raw100候选收集；不要从本页旧进行中段落推断还在跑policy或卡空闲。
