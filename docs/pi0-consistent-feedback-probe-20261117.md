@@ -52,3 +52,35 @@ controller206672 / snapshot worker206676 / watchdog wrapper206668
 ## 测试
 
 本地171项：127通过/44依赖skip；本次新增门禁拒绝未知/漂移/assistance与初始关节界限算术共2项，在服务器Python3.10也通过。它们验证代码条件，不替代真实快照、全模型采样或物理任务结果。
+
+## 21:23核实：真实快照及18次离线推理均已完成
+
+本workflow实际于**20:37:06 exit0完成**，父进程/模拟器/评分进程均退出；此次heartbeat已确认GPU1释放后才安排下一项诊断。
+
+- 六次独立scene initial state load、四次初始化left joint pose writes、六次初始化body holding-drive writes、六次body velocity writes；每组20次物理刷新，**teacher/learned actions执行0**。
+- Nominal frame0：RGB MAE5.22/6.48/5.64、body q最大差约7.95e-7rad；frame635：10.64/9.55/13.84、body q最大差约0.000333rad。全部nominal门禁实际通过。
+- 真实扰动按原bounds及物理结果记录，不假称每轴都精确±0.02rad；例如frame635 plus实际某轴变化约0.02675rad、其它轴受界限/物理影响。所有结果用**实际q差**计算gain，而不是请求值。
+- 六个快照时刻均无active assisted constraint、无初始化后的物体显式pose write；readonly finger/cup contact计数均0。中间physics attachment历史未逐步记录，仍未知，不把快照false当全程ever=false。
+
+同进程、同noise种子123/124/125的target响应gain：
+
+| 真正重采的初始化条件 | 三个noise的gain |
+|---|---|
+| frame0 minus | 1.00520 /1.00421 /1.00572 |
+| frame0 plus | 0.99929 /0.99677 /0.99866 |
+| frame635 minus | 1.05051 /1.04182 /1.03417 |
+| frame635 plus | 1.02340 /1.00763 /1.00704 |
+
+**相近的“absolute target随实际q变化”现象在真实重新取图后仍存在**，并非只在假q+原RGB组合中出现。frame635头/腕实际RGB确有改变，不能说完全不看图；原始q改变与图像/其它state变化并行，gain不是独立因果或唯一正确恢复目标的证明。没有执行模型动作，不以此宣布真实闭环无法恢复。
+
+另一个有用事实：frame635 nominal三种noise预测chunk的first effective-close index为**2/3/3**（专家source chunk为1）；minus为0/0/0，plus为5/5/5。它会随着真实观测条件改变close时序，**不是所有输入下都只播放完全相同动作**；仍需实际动作/接触对照解释时序与空间误差。
+
+证据SHA256：
+
+- `snapshots/result.json`：`963999bbf51184053f3c504a6030267c3048b12be34a64ed6fdfb5c9781a7ec3`
+- `score.json`：`752a4dc93f5905e0c12b2ec0643967250fb7ce5b4ca8c504cd5d99aef3aff569`
+- 实际三路快照接触图：`6e2f8d862941732f49e5fe0536c657dd528086a527a47aeff8991679acac684f`，小型压缩图与score JSON已核对SHA/目视检查，位于本地忽略目录`/home/yuanyue/double-arm/outputs/demo-review/consistent-feedback-initialization-ONLY-20261117/`，没有下载NPZ/数据集/权重。
+
+## 下一项已启动：源动作门禁后才做学得策略局部短闭环
+
+见`docs/pi0-local-grasp-diagnostic-20261117.md`。它只检验“用真实pre-grasp初态时，这个模型能否完成局部抓取”，**不是新的完整Tidy Table demo、导航、heldout或物理成功**。先用同初始化setup回放原source120动作作为有效性门禁；不通过不测learned case。模型使用同checkpoint/profile/真实传感器，绝不读teacher动作来控制。
