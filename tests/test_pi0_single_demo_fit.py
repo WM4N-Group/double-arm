@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from pi0_single_demo_fit import transition_indices,frame_schedule,sequence_sha256,storage_cast,variant_freeze_filter
+from pi0_single_demo_fit import transition_indices,frame_schedule,sequence_sha256,storage_cast,variant_freeze_filter,inference_payload,verify_postfit_repair
 
 
 class FitPlanTests(unittest.TestCase):
@@ -70,6 +70,34 @@ class FitPlanTests(unittest.TestCase):
         self.assertEqual(trainable_fingerprint(states[0].params),trainable_fingerprint(states[1].params))
         self.assertEqual(str(states[1].params.PaliGemma.img.kernel.value.dtype),'float32')
         self.assertEqual(str(states[1].params.PaliGemma.llm.kernel.value.dtype),'bfloat16')
+        before=trainable_fingerprint(states[0].params)
+        params,graph,step=inference_payload(states[0])
+        states.clear();del state
+        import gc
+        gc.collect()
+        self.assertEqual(step,0)
+        self.assertEqual(trainable_fingerprint(params),before)
+        def infer(p):
+            model=nnx.merge(graph,p);model.eval()
+            return model.PaliGemma.img.kernel.value*2
+        prediction=jax.jit(infer)(params)
+        self.assertEqual(prediction.shape,(2,))
+        self.assertTrue(bool(jnp.isfinite(prediction).all()))
+
+    def test_postfit_repeat_requires_explicit_verified_completed_fit_evidence(self):
+        import copy
+        fixture={'stage':'single_demo_fit_failed','actual_optimizer_updates':2000,
+            'optimizer_and_lr_counts':{'adam':2000,'lr':2000},'samples':[{'stage':'initial'}]*27,
+            'checkpoint_saved':False,'variant':'original_vision_trainable',
+            'error':"TypeCheckError opt_state Actual value: None",
+            'training_log':[{'update':2000,'loss':.001,'grad_norm':.2,'param_norm':1300}],
+            'initial_full_parameter_sha256':'a'*64,'final_trainable_sha256':'b'*64,
+            'initial_trainable_sha256':'c'*64}
+        self.assertEqual(verify_postfit_repair(fixture),'a'*64)
+        for key,value in [('actual_optimizer_updates',1999),('error','OOM'),('optimizer_and_lr_counts',{}),
+                          ('variant','extra_vision_frozen'),('samples',[{'stage':'final'}]*27)]:
+            changed=copy.deepcopy(fixture);changed[key]=value
+            with self.assertRaises(ValueError):verify_postfit_repair(changed)
 
 
 if __name__=='__main__':unittest.main()

@@ -71,3 +71,40 @@ def initialize_state(config, common_storage_filter, init_rng, mesh, upstream):
     replicated=jax.sharding.NamedSharding(mesh,jax.sharding.PartitionSpec())
     state=jax.jit(init,donate_argnums=(1,),in_shardings=replicated,out_shardings=placement)(init_rng,partial)
     return state,placement
+
+
+def inference_payload(state):
+    """Retain only model data; caller deletes TrainState to free optimizer RAM.
+
+    Never construct TrainState(opt_state=None): pinned runtime rejects that type.
+    Counts must be verified/recorded BEFORE this handoff; no further optimizer
+    updates are possible through this plain inference tuple.
+    """
+    return state.params,state.model_def,int(state.step)
+
+
+def verify_postfit_repair(report):
+    """Explicit opt-in ONLY for completed fit + known post-fit type error.
+
+    Not an automatic partial-training retry or permission to resume optimizer.
+    A repeated diagnostic must restart both branches from the same official base.
+    """
+    import math
+    if (report.get('stage')!='single_demo_fit_failed' or report.get('actual_optimizer_updates')!=2000
+        or not report.get('optimizer_and_lr_counts')
+        or any(v!=2000 for v in report['optimizer_and_lr_counts'].values())
+        or len(report.get('samples',[]))!=27
+        or any(s.get('stage')!='initial' for s in report['samples'])
+        or report.get('checkpoint_saved') is not False
+        or report.get('variant')!=VARIANTS[0]):
+        raise ValueError('Not the completed A-fit / missing-final-inference failure')
+    error=report.get('error','')
+    if not all(x in error for x in ('TypeCheckError','opt_state','Actual value: None')):
+        raise ValueError('Unknown post-fit failure; no blind retry')
+    last=report.get('training_log',[{}])[-1]
+    if last.get('update')!=2000 or not all(math.isfinite(float(last.get(k,float('nan')))) for k in ('loss','grad_norm','param_norm')):
+        raise ValueError('No verified finite final update')
+    initial=report.get('initial_full_parameter_sha256','');final=report.get('final_trainable_sha256','')
+    if len(initial)!=64 or len(final)!=64 or final==report.get('initial_trainable_sha256'):
+        raise ValueError('Missing initial/final parameter evidence')
+    return initial
