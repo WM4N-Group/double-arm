@@ -23,6 +23,13 @@
 - The isolated batch64 accumulation preflight used GPU1 only after its full coverage/evaluation workflow released it. At2026-11-17 02:16 the HOST-FP32 variant passed64 real microsteps/1 optimizer update; the device-resident variant OOMed. This is native/mean-std memory/count smoke, NOT direct real batch64 numerical equivalence, full training stability, or paper-aligned training/task success. See the latest stage notes below.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### LATEST raw5 + global CPU QA COMPLETE / GPU1 RELEASED (2026-11-17 19:37 CST)
+
+- GPU1seed20002 boundedraw5 ACTUALLYfinalized19:34:08: exit0,7attempts/5successes/2failures,5episodes/8544frames. Rawworker203505/child203510/sim203560andCPUfinalizer205482ALLexited;19:36:59nvidiaqueryhasONLYGPU0process198567. GPU1isnowreleased; latest-paper-generation-gpu1/latest-gpu1 pointersareCOMPLETEDprovenance,notactivegeneration. No new GPU1jobstartedthisturnafterrelease.
+- CPUfinalizerACTUALLYpassed19:35:00,registryappendkeepsALL4rawpools;global155eligibleunique/270250rawframes,0internalduplicate/old16+1fingerprintoverlap. QA`runs/raw5-finalize-20261117-193008/campaign/audit`,SHA`328fa53b0b2f0d5d5bbdbf019ef779e1c4576cb6162d20bb64ed4ecac6aab6ae`;latest-official-raw-pool-auditpointsHERE. 14candidatecleaningframes/0grippertransitions,NOcleaning/split/normchanges; authorjointsubsetstillunknown,NOTsemanticnewscenes/physical/policysuccess.
+- CPUstate-stem/exposureaudit19:31stilllatestdiagnostic(noGPU/fullVLA): qperturbnotlostinstem, ordinaryframe5–6visitsvs9transition1117–1118. Factsnotuniqueonlinecause. Originalrelative19999TRAIN/ASSISTEDfailureandvideoNOTsuperseded. NextGPUdiagnosticshouldusecontrolledinitializationwithRECAPTUREDrealRGB+proprio(avoidfakeq/sourceRGBonlivepolicy),explicitinitwritecounts/sync/planarity;noautomatictraining/hyperparamfixfromcounterfactualgain. FullpretrainedR1closedloopstillabsent.
+- GPU0original1000-targetseed10004runningunchanged. Existingautomationdouble-arm-46207remainsuseful,noduplicate. See`docs/pi0-feedback-input-exposure-audit-20261117.md`19:37section. Local169tests126pass/43skip,4newCPUtestsserverpass; user survey/x preserved.
+
 ### LATEST CPU feedback-input/exposure audit COMPLETE / raw5 CPU finalizer WAITING (2026-11-17 19:33 CST)
 
 - Both GPUs' existing official generation leftunchanged. GPU1seed20002 raw5 logreached5/7successes andHDF5MERGING at19:33, STILLverified0/nonterminal; doNOTpreempt/countlogasfinal. GPU0seed10004healthy,100worker-finalizedraw. No newlearnedpolicy/taskresult.

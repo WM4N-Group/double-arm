@@ -73,3 +73,11 @@ combined map: raw5_finite_CPU_QA (cpu_only=true)
 - 本地169项：126通过、43依赖skip；新增曝光计数/覆盖拒绝2项、raw5完成门禁/失败拒绝2项在服务器CPU也全部通过。
 - 部分恢复/真实norm/state-stem报告是服务器实际执行，非mock通过的替代品。
 - 四个checkpoint耦合runtime源码、旧16/1数据、所有旧权重、物理阈值和动作bounds未改。未重复交付旧视频、未产生新learned-policy任务结果。
+
+## 19:37完成补记（非新策略成功）
+
+- seed20002 raw5于19:34:08通过final gate：generator exit0、7 attempts/5 source successes/2 failures，5条/8,544 raw frames；controller、child及模拟器均已退出。
+- finite CPU finalizer于19:35:00真实完成跨池QA。registry保留原3个pool并追加raw5的final provenance；总计**155 eligible unique /270,250 raw frames**，snapshot内重复0、与旧16/1完全指纹重合0。
+- `obs/joint_qpos26D` endpoint predicate给出14个候选清洗帧、覆盖gripper转换0；author精确joint subset仍未核实，**没有清洗、split或norm修改**。这是原始assisted来源、字节轨迹去重，不是155个新场景、物理抓取或学得策略成功。
+- 最新QA：`/mnt/yuanyue/double-arm/runs/raw5-finalize-20261117-193008/campaign/audit`；report SHA256 `328fa53b0b2f0d5d5bbdbf019ef779e1c4576cb6162d20bb64ed4ecac6aab6ae`，权威audit指针已更新。19:36:59实查GPU1无compute进程，raw5和CPU finalizer均退出；旧generation campaign指针现在是**已完成历史**，不能把它误读成仍占卡。
+- GPU0 seed10004继续原官方生成；没启动替代策略或另一轮盲目训练。下一GPU诊断应先把“同RGB假q”的局限变成**受控初始化扰动后重新获取的物理一致RGB+proprio**，同时记录真实扰动、相机同步/姿态变化、初始化写入；这种初始化实验也不能冒称完整任务成功。预训练R1闭环对照仍待明确profile/normalization/视频身份后执行。
