@@ -48,3 +48,12 @@ registry保留各worker的raw provenance路径，即使`latest-paper-generation-
 - 代码源快照/SHA随CPU控制器保存。启动观察为等待依赖，未修改两张卡当前任务；后继是否真正启动必须读取实际status，而非把排队当完成。
 - 25条辅助数据正常完成、接着正常进入下一有界批次，属于健康data in-progress衔接，保持quiet。质量门禁失败、任务故障、整体数据目标完成或需要用户操作才通知。
 - 没有新learned-policy结果；此前coverage v3的失败不因数据增长而变成成功。源演示仍assisted，不冒称physical grasp或论文完整复现。
+
+## 08:06核实：门禁已经按预期衔接，属于正常数据进展
+
+- seed20000辅助批次于 **07:57:19 CST**最终完成：25条、43,282帧；dependency进程退出后才开始后继步骤，没有被提前终止。
+- 跨pool CPU审计实际通过：与GPU0首批合计 **50条eligible unique / 87,049 raw frames**，快照内重复0、旧16/1 fingerprint重合0。仍只有6个候选清洗帧，没有实际清洗、split或norm变更，author joint subset仍未核实。
+- 审计目录：本CPU控制器的`before-next-pool-audit/`；report SHA256为`5e149a80da9f2347f097f1a61a50235348285c1846b24cfefec6bb1b09e2f132`。这不是直接相加per-worker计数：统一指纹去重与旧split排除已经执行。
+- 新seed20001 worker于 **07:57:32 CST**启动：`paper-gpu1-data-followup-20261117-071110/next-auxiliary-pool`，controllerPID161674、实际模拟器PID161729，GPU1 UUID。它已进入真实官方生成，不是仅排队，08:06仍未完成新shard。
+- `latest-paper-generation-gpu1-campaign.txt`、`latest-gpu1-job.json`与合并map都已指向这个新worker；完成的seed20000路径保存在registry与dependency记录，没有被遗忘。原GPU0 source仍正常执行seed10001。
+- 这是预期的健康数据衔接，不另发每批通知；没有新的π₀训练 / 评估或成功demo，继续保持两个既有GPU任务。

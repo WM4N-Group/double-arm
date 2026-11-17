@@ -23,6 +23,13 @@
 - The isolated batch64 accumulation preflight used GPU1 only after its full coverage/evaluation workflow released it. At2026-11-17 02:16 the HOST-FP32 variant passed64 real microsteps/1 optimizer update; the device-resident variant OOMed. This is native/mean-std memory/count smoke, NOT direct real batch64 numerical equivalence, full training stability, or paper-aligned training/task success. See the latest stage notes below.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### LATEST observed healthy handoff (2026-11-17 08:06 CST)
+
+- GPU1 seed20000 auxiliary25 actually finalized at07:57:19 (25 episodes/43,282frames) and exited before finite handoff. Cross-pool QA PASSED:50 eligible unique raw episodes/87,049frames,0 internal or old16/1 fingerprint overlap;6 candidate qpos-cleaning frames only, no cleaning/split/norm change.
+- The finite CPU handoff is now `next_bounded_auxiliary_pool`. New seed20001 worker actually started07:57:32: `/mnt/yuanyue/double-arm/runs/paper-gpu1-data-followup-20261117-071110/next-auxiliary-pool`, controllerPID161674/simulator161729 onGPU1. Current GPU1 pointers and combinedmap correctly moved there; do not launch a duplicate after noticing oldauxPID155207 exited.
+- Registry preserves both completed-primary and completed-first-aux raw provenance. Combined audit snapshot is `paper-gpu1-data-followup-20261117-071110/before-next-pool-audit/`, SHA5e149a80da9f2347f097f1a61a50235348285c1846b24cfefec6bb1b09e2f132. GPU0seed10001 still running (08:06 log24/28, not yet final in that snapshot).
+- This is normal healthy data handoff, keep notifications quiet.50 raw source episodes are not paper training or learned-policy success; old failed coverage and successful memory smoke remain separate. See followup doc's08:06 evidence.
+
 ### LATEST finite CPU handoff (2026-11-17 07:11 CST)
 
 - Both official generators remain healthy:07:06 GPU0seed10001 log18 successes/22 attempts, GPU1seed20000 log24/32; only prior25 are finalized/verified. Do NOT preempt a near-complete shard or treat log counts as final.
