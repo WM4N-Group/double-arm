@@ -78,3 +78,7 @@ GPU1/map已指向新hybrid诊断；`latest-recorded-B-physical-replay.txt`与`la
 ## 测试
 
 本地194项146通过/48依赖skip；新增base-prefix仅改预定义3轴前缀、输入不变/异常拒绝2项在服务器CPU通过。fixture不证明实际root被纠正或杯子不掉，需读本新run真实结果。
+
+## 05:29更新：base-prefix局部回放仍失持，已回到真实闭环诊断
+
+Hybrid已实际跑完1200步，虽root接近参考站位至约0.6mm/0.022°，仍在step1144失持；这不是底盘单独修复成功。新case已启动同B模型真实TRAIN/physical execute5诊断，无teacher/hybrid控制、无新训练，使用新的显式只读无辅助观察选项；05:29仍CPU加载，无结论。详见`docs/B-base-prefix-result-and-chunk5-20261118.md`。旧所有失败/参考结果保留。

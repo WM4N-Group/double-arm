@@ -47,7 +47,10 @@ def main():
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='physical')
     p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
     p.add_argument('--policy-profile',choices=['legacy_native','pi0_r1_relative_full_demo_v1'],default='legacy_native')
+    p.add_argument('--audit-no-assistance',action='store_true',help='New opt-in physical Python/USD evidence, no control modification')
     args=p.parse_args()
+    from physical_grasp_observation import physical_audit_cli_flags
+    physical_audit_cli_flags(args.audit_no_assistance,args.grasping_mode)
     if args.output.exists():raise FileExistsError(args.output)
     if not 1<=args.execute_steps<=50:raise ValueError('Invalid receding horizon')
     if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
@@ -94,6 +97,22 @@ def main():
     # Failed/in-flight commands are never padded into a completed trace.
     cup_positions=[];post_base_positions=[];cup_grasp_flags=[];eef_poses=[];cup_contact_counts=[]
     queued=deque();states=[];actions=[];targets=[];proposals=[];root_poses=[];base_clipped=0;path=[]
+    no_assistance_samples=[]
+    if args.audit_no_assistance:
+        result.update(no_assistance_checked_samples=0,no_assistance_all_checked_samples_confirmed=False,
+            no_assistance_observation_scope='Initial + after reset physics refresh + pre/post control actions; NOT every internal physics substep; read-only NOT model input')
+    def observe_no_assistance(phase,index):
+        if not args.audit_no_assistance:return
+        from physical_grasp_observation import snapshot_no_assistance,no_assistance_confirmed,FIELDS,ARMS
+        report=snapshot_no_assistance(env.robot,lambda path:og.sim.stage.GetPrimAtPath(path).IsValid(),
+            inactive_freeze_none_source=root/'src/MoMaGen/BEHAVIOR-1K/OmniGibson/omnigibson/robots/manipulation_robot.py')
+        no_assistance_samples.append([report[field][arm] for field in FIELDS for arm in ARMS])
+        result['no_assistance_checked_samples']=len(no_assistance_samples)
+        if len(no_assistance_samples)==1:result['initial_no_assistance_evidence']=report
+        result['no_assistance_all_checked_samples_confirmed']=no_assistance_confirmed(report)
+        if not result['no_assistance_all_checked_samples_confirmed']:
+            result['no_assistance_rejected']={'phase':phase,'index':index,'evidence':report}
+            raise ValueError('Read-only physical Python/USD assistance evidence incomplete/active; no bypass')
     grasp=[False,False];stable=0;rpc=[];clipped=0;max_cup_lift=0.0;cup_grasped=False
     step=-1;pose=None;initial_cup_position=None
     def finalize_episode(aborted=False):
@@ -118,7 +137,8 @@ def main():
             post_step_base_positions=np.stack(post_base_positions),
             post_step_eef_world_poses=np.stack(eef_poses[:n]),post_step_cup_contact_finger_counts=np.stack(cup_contact_counts[:n]),
             post_step_cup_grasp_flags=np.asarray(cup_grasp_flags,dtype=bool),
-            initial_cup_position=initial_cup_position)
+            initial_cup_position=initial_cup_position,
+            **({'no_assistance_observations':np.asarray(no_assistance_samples,np.int8).reshape(-1,8)} if args.audit_no_assistance else {}))
         (args.output/'inference-times.json').write_text(json.dumps(rpc,indent=2));save()
     import omnigibson as og
     from robomimic.envs.env_omnigibson import EnvOmniGibson
@@ -128,6 +148,7 @@ def main():
         if int(og.sim.dump_state(serialized=True).numel())!=len(initial):raise ValueError('Serialized reset layout mismatch')
         og.sim.load_state(torch.tensor(initial,dtype=torch.float32),serialized=True)
         if args.grasping_mode=='physical':activate_physical_after_reset(env.robot)
+        observe_no_assistance('initial_after_physical_conversion',0)
         result['runtime_motor_contract']=snapshot_motor_contract(env.robot)
         result['grasping_mode']=env.robot.grasping_mode
         audit=ObjectPoseAudit(env.env.task.object_scope)
@@ -168,6 +189,7 @@ def main():
         for _ in range(args.reset_settle_steps):
             og.sim.step()
             result['reset_physics_steps']+=1
+            observe_no_assistance('reset_refresh',result['reset_physics_steps'])
             assisted=any(value is not None for value in env.robot._ag_obj_constraints.values())
             result['assisted_constraint_seen']|=assisted
             if args.grasping_mode=='physical' and (assisted or audit.events):
@@ -198,6 +220,7 @@ def main():
         except OSError:font=ImageFont.load_default()
         for step in range(args.max_steps):
             audit.step=step
+            observe_no_assistance('pre_control',step)
             if not queued:
                 inputs={key:rgb_image(obs[name]) for key,name in cameras.items()}
                 inputs.update(state=as_numpy(obs['prop_state']).copy(),prompt=PROMPT)
@@ -244,6 +267,7 @@ def main():
             cup_position=as_numpy(cup.get_position_orientation()[0]).copy()
             cup_positions.append(cup_position);cup_grasp_flags.append(cup_grasp_now)
             post_base_positions.append(as_numpy(obs['base_link_pose'])[:3].copy())
+            observe_no_assistance('post_control',step)
             max_cup_lift=max(max_cup_lift,float(cup_position[2])-initial_cup_z)
             success=bool(env.is_success()['task']);stable=stable+1 if success else 0
             if step%2==0:

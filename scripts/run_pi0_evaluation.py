@@ -52,8 +52,11 @@ def main():
     p.add_argument('--policy-profile',choices=[LEGACY_PROFILE,RELATIVE_FULL_PROFILE],default=LEGACY_PROFILE)
     p.add_argument('--grasping-mode',choices=['physical','configured'],default='physical')
     p.add_argument('--reset-settle-steps',type=int,default=0)
+    p.add_argument('--audit-no-assistance',action='store_true',help='New opt-in read-only Python/USD assistance evidence; physical mode only')
     args=p.parse_args();root=args.root;out=args.output
     serving_script=inference_entrypoint(args.policy_profile,args.action_representation)
+    from physical_grasp_observation import physical_audit_cli_flags
+    assistance_audit_flags=physical_audit_cli_flags(args.audit_no_assistance,args.grasping_mode)
     execute_steps=args.execute_steps if args.execute_steps is not None else (10 if args.inference_platform=='cpu' else 5)
     if not 1<=execute_steps<=50:raise ValueError('Invalid receding horizon')
     if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
@@ -80,7 +83,8 @@ def main():
            'execute_steps':execute_steps,'real_time_control_claim':False,
            'denoising_steps':args.denoising_steps,'sampling_noise':args.sampling_noise,'action_representation':args.action_representation,
            'evaluation_split':args.evaluation_split,'source_demo':args.demo,
-           'grasping_condition':args.grasping_mode,'requested_reset_physics_steps':args.reset_settle_steps}
+           'grasping_condition':args.grasping_mode,'requested_reset_physics_steps':args.reset_settle_steps,
+           'audit_no_assistance_requested':args.audit_no_assistance}
     def save(**kwargs):
         state.update(kwargs,updated_at=datetime.now(timezone.utc).isoformat());tmp=out/'status.tmp'
         tmp.write_text(json.dumps(state,indent=2));tmp.replace(out/'status.json')
@@ -158,7 +162,7 @@ def main():
             '--dataset',str(args.source_dataset),'--demo',args.demo,'--evaluation-split',args.evaluation_split,'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
             '--execute-steps',str(execute_steps),'--action-representation',args.action_representation,
-            '--reset-settle-steps',str(args.reset_settle_steps),'--policy-profile',args.policy_profile],out/'physical-rollout.log')
+            '--reset-settle-steps',str(args.reset_settle_steps),'--policy-profile',args.policy_profile,*assistance_audit_flags],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_author_config' if args.grasping_mode=='configured' else 'evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')

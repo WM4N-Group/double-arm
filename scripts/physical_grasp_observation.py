@@ -72,3 +72,11 @@ def no_assistance_confirmed(report):
         return False
     return all(isinstance(report.get(field),dict) and set(report[field])==set(ARMS)
         and all(type(report[field][arm]) is int and report[field][arm]==0 for arm in ARMS) for field in FIELDS)
+
+
+def physical_audit_cli_flags(enabled,grasping_mode):
+    """Explicit future evaluation opt-in, never infer physical from configured."""
+    if type(enabled) is not bool:raise ValueError('Explicit Boolean audit opt-in required')
+    if not enabled:return []
+    if grasping_mode!='physical':raise ValueError('No-assistance audit requires explicit physical mode')
+    return ['--audit-no-assistance']
