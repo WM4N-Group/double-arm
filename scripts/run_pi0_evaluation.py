@@ -19,6 +19,16 @@ from pi0_review_contract import physical_task_passed,training_split_physical_tas
 from evaluation_split_contract import verify_evaluation_episode
 
 
+LEGACY_PROFILE='legacy_native'
+RELATIVE_FULL_PROFILE='pi0_r1_relative_full_demo_v1'
+
+
+def inference_entrypoint(profile,action_representation):
+    if profile==LEGACY_PROFILE:return 'serve_pi0_r1.py'
+    if profile==RELATIVE_FULL_PROFILE and action_representation=='native':return 'serve_pi0_relative_full_r1.py'
+    raise ValueError('Unsupported policy profile/action representation; no legacy fallback')
+
+
 def read(path,default=None):
     try:return json.loads(path.read_text())
     except (OSError,ValueError):return default
@@ -39,9 +49,11 @@ def main():
     p.add_argument('--denoising-steps',type=int,default=10)
     p.add_argument('--sampling-noise',choices=['gaussian','zero'],default='gaussian')
     p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
+    p.add_argument('--policy-profile',choices=[LEGACY_PROFILE,RELATIVE_FULL_PROFILE],default=LEGACY_PROFILE)
     p.add_argument('--grasping-mode',choices=['physical','configured'],default='physical')
     p.add_argument('--reset-settle-steps',type=int,default=0)
     args=p.parse_args();root=args.root;out=args.output
+    serving_script=inference_entrypoint(args.policy_profile,args.action_representation)
     execute_steps=args.execute_steps if args.execute_steps is not None else (10 if args.inference_platform=='cpu' else 5)
     if not 1<=execute_steps<=50:raise ValueError('Invalid receding horizon')
     if not 0<=args.reset_settle_steps<=20:raise ValueError('Invalid bounded reset settling')
@@ -62,7 +74,7 @@ def main():
     split_provenance=root/'data/pi0/lerobot/momagen/r1_tidy_table_holdout_v1/momagen-provenance.json' if args.evaluation_split=='validation' else args.training_provenance
     verify_evaluation_episode(read(split_provenance,{}),args.source_dataset,args.demo,args.evaluation_split)
     gpu=resolve_gpu(root);out.mkdir();deadline=time.monotonic()+args.hours*3600;script=Path(__file__).resolve().parent
-    state={'stage':'preparing_pi0_native_evaluation','checkpoint':str(args.checkpoint),'gpu_uuid':gpu,
+    state={'stage':'preparing_pi0_native_evaluation','policy_profile':args.policy_profile,'checkpoint':str(args.checkpoint),'gpu_uuid':gpu,
            'max_gpu_count':1,'task_success':False,'started_at':datetime.now(timezone.utc).isoformat(),
            'physical_parameters_calibrated_to_real_robot':False,'inference_platform':args.inference_platform,
            'execute_steps':execute_steps,'real_time_control_claim':False,
@@ -101,10 +113,12 @@ def main():
                 'taskset','-c','88-103']+command,stdout=handle,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,
                 start_new_session=True,env={**base,**(extra or {})})
     server=None;simulation=None;exporter=None
+    def interrupted(signum,frame):raise InterruptedError(f'Evaluation controller signal{signum}; cleaning owned children')
+    signal.signal(signal.SIGTERM,interrupted)
     try:
         existing=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid','--format=csv,noheader'],text=True)
         if any(line.split(',')[0].strip()==gpu for line in existing.splitlines()):raise RuntimeError('Allocated GPU occupied; refusing to steal it')
-        server=launch([str(root/'envs/openpi/bin/python'),'-u',str(script/'serve_pi0_r1.py'),
+        server=launch([str(root/'envs/openpi/bin/python'),'-u',str(script/serving_script),
             '--checkpoint',str(args.checkpoint),'--token-file',str(token),'--ready-file',str(out/'inference-ready.json'),
             '--hours',str(args.hours),'--inference-platform',args.inference_platform,
             '--denoising-steps',str(args.denoising_steps),'--sampling-noise',args.sampling_noise,
@@ -118,6 +132,9 @@ def main():
             if (root/'runs/USER_PAUSED.json').exists():raise RuntimeError('User paused project')
             time.sleep(10)
         if not (out/'inference-ready.json').exists():raise RuntimeError('Pi0 inference service failed to load; inspect log')
+        ready=read(out/'inference-ready.json',{})
+        if args.policy_profile!=LEGACY_PROFILE and ready.get('policy_profile')!=args.policy_profile:
+            raise ValueError('New-profile serving identity mismatch; do not start simulator')
         from pi0_rpc import infer_local
         from momagen_pi0_schema import camera_keys,rgb_image,PROMPT
         # Warm up with a real heldout reset image, not synthetic replacement.
@@ -141,7 +158,7 @@ def main():
             '--dataset',str(args.source_dataset),'--demo',args.demo,'--evaluation-split',args.evaluation_split,'--output',str(out/'physical-rollout'),'--checkpoint',str(args.checkpoint),
             '--token-file',str(token),'--action-bounds',str(out/'action-bounds.json'),'--grasping-mode',args.grasping_mode,
             '--execute-steps',str(execute_steps),'--action-representation',args.action_representation,
-            '--reset-settle-steps',str(args.reset_settle_steps)],out/'physical-rollout.log')
+            '--reset-settle-steps',str(args.reset_settle_steps),'--policy-profile',args.policy_profile],out/'physical-rollout.log')
         save(stage='evaluating_real_visual_pi0_author_config' if args.grasping_mode=='configured' else 'evaluating_real_visual_pi0_physical',simulation_pid=simulation.pid)
         while simulation.poll() is None:
             if time.monotonic()>deadline or (root/'runs/USER_PAUSED.json').exists():raise TimeoutError('Evaluation deadline or user pause')

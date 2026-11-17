@@ -46,6 +46,7 @@ def main():
     p.add_argument('--execute-steps',type=int,default=5)
     p.add_argument('--grasping-mode',choices=['configured','physical'],default='physical')
     p.add_argument('--action-representation',choices=['native','absolute_base'],default='native')
+    p.add_argument('--policy-profile',choices=['legacy_native','pi0_r1_relative_full_demo_v1'],default='legacy_native')
     args=p.parse_args()
     if args.output.exists():raise FileExistsError(args.output)
     if not 1<=args.execute_steps<=50:raise ValueError('Invalid receding horizon')
@@ -76,7 +77,7 @@ def main():
     meta['env_kwargs']['init_curobo']=False
     args.output.mkdir(parents=True)
     result={'mode':'reset_observation_audit_only' if args.snapshot_only else 'closed_loop_neural_policy','algorithm':'official_openpi_pi0_lora32','privileged_state':False,
-            'checkpoint':str(args.checkpoint),'planner_enabled':False,'teacher_action_reads':0,'initial_state_load_count':1,
+            'checkpoint':str(args.checkpoint),'policy_profile':args.policy_profile,'planner_enabled':False,'teacher_action_reads':0,'initial_state_load_count':1,
             'input_modalities':['head_rgb','left_wrist_rgb','right_wrist_rgb','proprioception','instruction'],
             'evaluation_split':args.evaluation_split,'source_demo':args.demo,
             'execute_steps':args.execute_steps,'predicted_horizon':50,'grasping_mode':args.grasping_mode,
@@ -201,9 +202,13 @@ def main():
                 inputs={key:rgb_image(obs[name]) for key,name in cameras.items()}
                 inputs.update(state=as_numpy(obs['prop_state']).copy(),prompt=PROMPT)
                 prediction,info=infer_local(inputs,token,args.port)
+                if args.policy_profile!='legacy_native' and info.get('policy_profile')!=args.policy_profile:
+                    raise ValueError('Runtime policy profile mismatch; no fallback')
                 platform=info.get('inference_platform')
                 if platform not in ('cpu','gpu'):raise ValueError('Inference service did not report its platform')
                 result['inference_platform']=platform
+                result['model_action_encoding']=info.get('model_action_encoding',args.action_representation)
+                result['serving_source_sha256']=info.get('serving_source_sha256')
                 result['denoising_steps']=info.get('denoising_steps')
                 result['sampling_noise']=info.get('sampling_noise')
                 if info.get('action_representation','native')!=args.action_representation:raise ValueError('Wrong action representation service')
@@ -245,7 +250,7 @@ def main():
                 primary=rgb_image(env.env._external_sensors['external_sensor2'].get_obs()[0]['rgb'])
                 head=rgb_image(obs[cameras['head_image']])
                 frame=Image.new('RGB',(960,508),'#161616');frame.paste(Image.fromarray(primary).resize((480,480)),(0,28));frame.paste(Image.fromarray(head).resize((480,480)),(480,28))
-                ImageDraw.Draw(frame).text((5,5),f'PI0 LoRA32 / {result["inference_platform"].upper()} / {env.robot.grasping_mode.upper()} / step {step} / success {success}',font=font,fill='white')
+                ImageDraw.Draw(frame).text((5,5),f'PI0 LoRA32 {"RELATIVE-FULL FIT" if args.policy_profile!="legacy_native" else ""} / {result["inference_platform"].upper()} / {env.robot.grasping_mode.upper()} / step {step} / success {success}',font=font,fill='white')
                 writer.append_data(np.asarray(frame))
                 if step%200==0:frame.save(args.output/'progress.jpg')
             if step%100==0:print(json.dumps({'step':step,'success':success,'grasped_ever':grasp,'robot_root_pose':pose.tolist()}),flush=True)

@@ -28,6 +28,8 @@ def main():
     gpu=resolve_gpu(root,os.environ.get('CUDA_VISIBLE_DEVICES'))
     if not str(args.checkpoint).startswith(str(root/'runs')+'/'):raise ValueError('A project fine-tuned checkpoint is required, not the unfine-tuned base')
     if not (args.checkpoint/'params').is_dir():raise ValueError('Missing openpi checkpoint params')
+    if (args.checkpoint/'assets/r1-relative-profile-contract.json').exists():
+        raise ValueError('Relative full-demo checkpoint requires its explicit profile service; no legacy native interpretation')
     token=args.token_file.read_text().strip()
     if len(token)<32:raise ValueError('Strong local authentication token required')
     os.environ['CUDA_VISIBLE_DEVICES']=gpu if args.inference_platform=='gpu' else ''

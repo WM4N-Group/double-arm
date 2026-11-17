@@ -37,6 +37,8 @@ def main():
     checkpoint=Path(assessed['checkpoint'])
     if not checkpoint.resolve().is_relative_to((root/'runs').resolve()):raise ValueError('Project checkpoint required')
     if str(checkpoint)!=result.get('checkpoint'):raise ValueError('Checkpoint provenance mismatch')
+    relative_contract=checkpoint/'assets/r1-relative-profile-contract.json'
+    profile_training=json.loads(relative_contract.read_text()) if relative_contract.is_file() else {}
     passed=physical_task_passed(result) and assessed.get('task_success') is True
     if args.require_success and not passed:raise ValueError('Physical task acceptance did not pass')
     label='PI0 PHYSICAL SUCCESS - MANUAL REVIEW PENDING' if passed else 'PI0 FAILED ATTEMPT - NOT A SUCCESS DEMO'
@@ -80,7 +82,13 @@ def main():
         'author_assisted_task_success':result.get('grasping_mode')!='physical' and result.get('task_success') is True,
         'manual_video_review_required':True,'inference_platform':result.get('inference_platform'),
         'real_time_control_claim':False,'checkpoint_fingerprint':fingerprint['sha256'],'checkpoint':str(checkpoint),
-        'formal_training_completed':True,'train_demonstrations':training.get('train_demonstrations'),
+        'formal_training_completed':training.get('formal_training_completed',True),
+        'training_is_diagnostic':training.get('training_is_diagnostic',False),'policy_profile':result.get('policy_profile','legacy_native'),
+        'paper_reproduction_complete':training.get('paper_reproduction_complete',False),
+        'actual_optimizer_updates':profile_training.get('optimizer_updates',training.get('training_steps')),
+        'training_recipe_scope':profile_training.get('sampling_recipe'),
+        'model_action_encoding':result.get('model_action_encoding',result.get('action_representation')),
+        'train_demonstrations':training.get('train_demonstrations'),
         'train_frames':training.get('train_frames'),'source_data_grasping':'author assisted attachment',
         'evaluation':result,'video':video,'video_sha256':sha256_file(destination),
         'source_video_sha256':sha256_file(source),'trace_sha256':sha256_file(rollout/(episode['demo']+'-trace.npz')),
