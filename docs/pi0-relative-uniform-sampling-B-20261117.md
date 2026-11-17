@@ -63,3 +63,23 @@ GPU0仍为原官方1000-target数据生成，未中断；当时seed10004在合�
 B仍在HOST缓存，22:00实查801/1714帧、0 optimizer updates、无error；不是已完成模型初始化或实际梯度通过。不要用controller的training标签替代worker实际stage。
 
 GPU0 seed10004已真实exit0/finalized25（35 attempts/25 successes/10 failures），primary worker累计**125 raw episodes /217,942帧**，原控制器自动进入seed10005，新sim cold-start。这里只是worker内计数；最后跨池immutable QA仍155/270,250 snapshot，**没有直接把它与旧aux计数相加宣称新全局180**。GPU0没有被重启或占用来做策略测试。
+
+## 22:31运行核对：真实配对检查及首个5k保存通过
+
+- B实际达到**5000/20000 optimizer updates**，当前首个Orbax保存阶段，无error；末步loss约0.03109、grad norm约1.29568，均有限，不代表任务成功。
+- 全1714 HOST cache完成，原始RGB/state/prompt digest与A完全相同：`3f216b350f63895556028f1bd2d4dd9012a24036804a1faa0be5b44d1b97c6f0`；全source动作inverse max1.19e-7。
+- 实际初始完整参数/dtype hash与A相同：`a3ee6c232ac89b0e4e5437e326dc5af9234f3a4436cb4cc0b138fbe605e28e1b`。不再只是plan中的预期值。
+- 新uniform schedule SHA `f6f75ec9e122a85c22df8fb929d4392748921763123dd74bf5a8c22db9b662d0`；source与基座相同，采样顺序/权重是明确差异。
+- 首个checkpoint `runs/pi0-checkpoints/pi0_r1_relative_full_demo_v1/pi0-relative-uniform-B-20261117-215312/4999`实际保存，AdamW/LR counts均5000，norm SHA仍与A一样`77f6443649bf3468ebd164f27cb21f01898f89f42f8fa27faf50c89f4bd10fc5`。contract明确uniform variant、paired A provenance及`training_completed=false`，**中间点不可服务、不提前评估**。
+- 无新B闭环/physical结果；训练、sampler、norm、adapter与现有eval源码保持不变。另备的无assistance只读审计工具只做CPU测试，未接入本in-flight流程。
+
+## 同时完成的原始池只读QA（不是新策略结果）
+
+CPU读取已登记4个pool的final provenance，再排除旧16/1并跨worker去重，已真实得到**180 eligible unique /314,090 raw frames**、重复0/旧split指纹重合0；不是简单相加计数。仍为assisted来源，不是180新场景或physical成功。
+
+```text
+/mnt/yuanyue/double-arm/runs/official-raw-pool-audit-20261117-222630/audit
+runs/latest-official-raw-pool-audit.txt
+```
+
+Report SHA256：`fbe258ef18ead6e1a1c5c763e0508473b9a43571d1147fcd29aaadc11b279d42`。14个candidate frozen-segment frames、覆盖gripper transitions0；精确author joint subset未核实，**未实际cleaning/split/normalization修改**。GPU0 seed10005继续，GPU1 B训练未被中断。
