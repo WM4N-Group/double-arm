@@ -51,7 +51,7 @@ Source gate失败时停止，不启动learned case，报告初始化/控制有�
 
 本地173项129通过/44依赖skip；新增source replay完成门禁、局部assisted结果不能进入完整physical acceptance及标签隔离2项在服务器Python3.10也通过。Mock/contract测试不代表真实source回放或局部抓取已通过。
 
-## 21:42结果：相同已失败模型在pre-grasp初始化下真实抓起杯子（ASSISTED ONLY）
+## 21:42结果：策略触发辅助附着并抬杯（未验证无辅助物理夹持）
 
 **两case实际完成、sim exit0，workflow于21:42:29完成。** Source有效性门禁通过后才运行learned case，顺序与实际trace一致。
 
@@ -76,7 +76,7 @@ Source gate失败时停止，不启动learned case，报告初始化/控制有�
 
 ### 能确认什么 / 不能确认什么
 
-**可以确认：**这一具体已训练checkpoint并非完全没有学到“接近抓取条件后关夹并抬杯”的行为。真实相机+proprio→同原π₀模型→普通native控制，未用teacher action、planner或每步状态恢复，确实产生了局部杯子抓取与抬升。Source replay独立验证该初始化setup可用。
+**只能确认：**真实相机+proprio→同原π₀模型→普通native控制，在特权pre-grasp初始化后输出了关夹/抬臂，触发assisted attachment，随后杯子随臂抬升。Learned段未用teacher action、planner或每步状态恢复，但模拟器辅助约束确实参与承载；backend grasp report不是独立的物理夹持验收。不能据此宣称模型已经学会在无辅助条件下夹住杯子。Source replay只验证相同assisted初始化setup可用。
 
 **不可以确认：**完整起点出发的Tidy Table成功、导航成功、physical grasp、heldout/generalization或整篇论文复现。这里有明确的**privileged source635 pre-positioning、初始化holding/velocity操作和assisted constraint**。原3000步完整TRAIN/ASSISTED失败仍有效，物理/heldout门禁没有因局部结果解锁。
 
@@ -96,3 +96,13 @@ Source gate失败时停止，不启动learned case，报告初始化/控制有�
 - CPU事后分析`campaign/local-forensics.json`与源码`analyze_pi0_local_grasp.py`，只读两份已完成trace，无模型/仿真调用；source动作只当明确标记的事后参照。
 
 新片段的模型仍是A final19999/full parameter SHA `ffe08f...b78180b`，不是下一uniform B权重。原100秒失败视频继续保留；没有拿这次局部assisted抓取覆盖原始端到端失败。
+
+## 22:10用户视频审阅后的措辞纠正
+
+用户指出杯子瞬间被吸附到夹爪，这是有效且重要的审阅意见。前述“模型并不是完全不会抓杯”“真实抓起”容易扩大证据含义，应收紧为**触发辅助附着后抬杯**，不以局部视频证明物理夹持或完整抓取技能。
+
+- 该learned episode实际`assisted_constraint_seen=true`。Pinned OmniGibson的`manipulation_robot.py`在assisted候选/接触/射线检查后，通过`_establish_grasp_rigid`创建末端与物体之间的`ag_constraint`，并设置辅助gripper freeze状态。约束承担了额外稳定/附着作用，接触力和摩擦能否独立维持杯子未被验证。
+- `object_pose_write_count=0`只说明没有被审计到显式物体pose setter，不排除constraint solver把物体拉住/带走，**绝不等于无辅助或无“吸附”**。
+- 只读trace中最大相邻post-step杯位移约8.93mm，发生于local step7（约0.233s）。本trace没有逐步attachment flag，不能把这一跳变精确分解为constraint建立瞬间、正常运动或碰撞解算的贡献；这不改变本片确有assistance、不是physical proof的结论。
+- 13.3cm是**辅助约束条件下**的杯子抬升，不是物理抓取成功率/抓力/稳定性证据。原始视频、JSON、trace保持不变，保留原始字段`local_cup_grasp_report_seen=true`，但解释应明确它是辅助模式的backend报告。
+- 均匀采样B仍作为覆盖诊断继续，22:10实查275个真实updates、无error；未修改或中断训练、norm、标签、adapter。局部assisted结果仍不解锁完整TRAIN/physical或heldout门禁。若做局部physical-only对照，必须另立诊断、真实禁用attachment，并以接触/夹持/抬升结果独立评估；不能用这段视频替代。

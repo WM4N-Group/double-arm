@@ -23,6 +23,13 @@
 - The isolated batch64 accumulation preflight used GPU1 only after its full coverage/evaluation workflow released it. At2026-11-17 02:16 the HOST-FP32 variant passed64 real microsteps/1 optimizer update; the device-resident variant OOMed. This is native/mean-std memory/count smoke, NOT direct real batch64 numerical equivalence, full training stability, or paper-aligned training/task success. See the latest stage notes below.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### LATEST USER VIDEO REVIEW CORRECTION — attachment is NOT physical grasp proof (2026-11-17 22:10 CST)
+
+- Usercorrectlyobservedcupinstantmagnetization. Priorwording"modelisnotcategoricallyunabletograsp"/"realcupgrasp"wasTOOBROAD. Strictresult: privilegedsource635init->learnedclose/liftcommands->ASSISTEDattachment->cupraised. ItdoesNOTestablishlearnedunassistedgripping,graspforce/stability,fulltaskorphysicalsuccess. ReadexistinglocalmetricsasASSISTEDbackendreports,notindependentphysicalacceptance.
+- Verifiedactualepisodeassisted_constraint_seen=true;pinnedOG_establish_grasp_rigidcreatesag_constraintbetweenEEF/objectandfreezesassistedgripperstate. object_pose_write_count=0ONLYmeansnoauditedexplicitobjectposesetter;constraintsolverattachmentstillassistance. DoNOTusezeroPoseWritesor13.3cmliftasproofagainstuser'sobservation.
+- Adjacentpost-stepcupmaxdelta8.93mmatlocalstep7(.233s);NOsavedperstepattachmentflags,sodonotclaimexactjump=exactconstraintonset/solemotioncause. Rawvideo/trace/JSONunchanged;onlynarrativeclaimcorrected. Originalfullsource0failure/physicalNOTRUNstillstand.
+- BuniformtrainingleftUNCHANGED,22:10actual275updates/noerror. Noabort/restart/config/norm/label/adapter/sampleredits. Anyfuturephysical-onlylocalcontrolmustbenewexplicitdiagnosticwithattachmentactuallydisabled;LOCALassisteddoesNOTunlockfullphysical/heldoutgates. Seeupdated`docs/pi0-local-grasp-diagnostic-20261117.md`22:10section.
+
 ### LATEST learned LOCAL assisted grasp observed / uniform-sampling B ACTIVE (2026-11-17 21:55 CST)
 
 - ImportantnewSCOPELIMITEDresult: localworkflowACTUALLYcompleted21:42:29 exit0. Source635privilegedinitreplaycontrol120stepsgrasp+assistance,lift.12181m; thenindependentlearnedoriginalpi0Afinal19999realRGB/proprio120steps/12calls/teacherreads0,cupgrasp+ASSISTEDattachment,lift.13309m,posewrites0. ModelisNOTcategoricallyunabletograspunderthesefamiliarpregraspconditions. BUTNOTfullTidyTable/navigation/heldout/physicalsuccess; complete-source0A3000stepfailurestillstands,physicalgatesNOTunlocked.
