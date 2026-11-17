@@ -38,6 +38,8 @@ controller206672 / snapshot worker206676 / watchdog wrapper206668
 
 若中间source reset因驱动/刷新无法稳定，报告的是**新初始化诊断未通过**，不是又一条learned-policy闭环失败，不得与已交付的真实3000步失败混淆。
 
+采样范围说明：本版`assisted_constraint_seen`实际只检查每组**刷新后快照时刻**的constraint是否存在，并未逐physics step累计ever-seen；中途出现又消失的attachment未知，不能将false说成全过程从未attachment。物体显式pose setter则由audit覆盖刷新阶段。root planarity也在快照时检查。以上范围只服务初始化快照诊断，不提供物理抓取或任务验收证明。
+
 ## CPU离线采样与解释边界
 
 - 同一个relative-full final19999、同saved norm、保留FP32/BF16实际参数dtype；四个checkpoint耦合runtime源码不改。
