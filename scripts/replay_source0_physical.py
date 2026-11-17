@@ -30,6 +30,26 @@ def dependency_released(status,alive):
             and status.get('training')=='completed' and not alive)
 
 
+def replay_completed(code,result):
+    # Isaac shutdown can return process exit0 even after a stored setup error.
+    # Never use exit status alone as evidence that actual source commands ran.
+    return (code==0 and result.get('stage')=='source_replay_completed_NOT_learned_policy'
+        and result.get('aborted') is False and not result.get('error')
+        and result.get('teacher_source_actions_executed')==1714
+        and result.get('no_assistance_all_checked_samples_confirmed') is True)
+
+
+def valid_freeze_sentinel_repair(result,rejected):
+    expected={"_ag_freeze_gripper."+arm+": TypeError: Expected recorded Boolean, not an unknown truthy object" for arm in ('left','right')}
+    return (result.get('stage')=='source_replay_aborted_NOT_learned_policy' and result.get('aborted') is True
+        and result.get('teacher_source_actions_executed')==0 and result.get('reset_physics_steps')==0
+        and result.get('no_assistance_checked_samples')==1
+        and result.get('error')=="ValueError('Physical/AG Python/USD absence not confirmed at initial 0')"
+        and set(rejected.get('errors',[]))==expected and rejected.get('grasping_mode')=='physical'
+        and all(rejected.get(field)=={'left':0,'right':0} for field in ('constraint_active','object_in_hand','usd_ag_constraint_present'))
+        and rejected.get('gripper_freeze')=={'left':-1,'right':-1})
+
+
 def simulate(c,parent):
     if os.getppid()!=parent or read(c/'status.json')['controller_pid']!=parent:raise ValueError('Owning parent required')
     from resource_allocation import resolve_gpu
@@ -79,8 +99,10 @@ def simulate(c,parent):
     from robomimic.envs.env_omnigibson import EnvOmniGibson
     def array(x):return x.detach().cpu().numpy() if hasattr(x,'detach') else np.asarray(x)
     def check_assistance(robot,phase,step):
-        snapshot=snapshot_no_assistance(robot,lambda path:og.sim.stage.GetPrimAtPath(path).IsValid())
+        snapshot=snapshot_no_assistance(robot,lambda path:og.sim.stage.GetPrimAtPath(path).IsValid(),
+            inactive_freeze_none_source=ROOT/'src/MoMaGen/BEHAVIOR-1K/OmniGibson/omnigibson/robots/manipulation_robot.py')
         result['no_assistance_checked_samples']+=1
+        if result['no_assistance_checked_samples']==1:write(out/'initial-no-assistance-evidence.json',snapshot)
         if not no_assistance_confirmed(snapshot):
             write(out/('assistance-rejected-'+str(result['no_assistance_checked_samples'])+'.json'),snapshot)
             raise ValueError('Physical/AG Python/USD absence not confirmed at '+phase+' '+str(step))
@@ -161,7 +183,7 @@ def export(c):
         'video_sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'trace_sha256':hashlib.sha256((c/'replay/trace.npz').read_bytes()).hexdigest()})
 
 
-def controller(c):
+def controller(c,repair_aborted_run=None):
     import fcntl
     import signal
     from resource_allocation import resolve_gpu
@@ -169,16 +191,27 @@ def controller(c):
     if c.exists() or not c.resolve().is_relative_to(ROOT/'runs'):raise ValueError('Fresh project campaign')
     gpu=resolve_gpu(ROOT,'1');lock=(ROOT/'runs'/f'gpu-{gpu}.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     old=read(ROOT/'runs/latest-gpu1-job.json');state=read(old['status_file'])
-    if not dependency_released(state,process_alive(old.get('controller_pid'))):raise ValueError('Entire B workflow must terminate and release')
-    ev=read(Path(old['campaign'])/'train-physical-diagnostic/status.json')
-    if any(process_alive(ev.get(k)) for k in ('server_pid','simulation_pid')):raise ValueError('B service/simulator still alive')
+    if repair_aborted_run is None:
+        if not dependency_released(state,process_alive(old.get('controller_pid'))):raise ValueError('Entire B workflow must terminate and release')
+        baseline=Path(old['campaign'])
+        ev=read(baseline/'train-physical-diagnostic/status.json')
+        if any(process_alive(ev.get(k)) for k in ('server_pid','simulation_pid')):raise ValueError('B service/simulator still alive')
+    else:
+        if str(repair_aborted_run)!=old['campaign'] or process_alive(old.get('controller_pid')) or state.get('active_pid')!=0:
+            raise ValueError('Repair requires exact previous exited setup diagnostic')
+        aborted=read(repair_aborted_run/'replay/result.json');rejected=read(repair_aborted_run/'replay/assistance-rejected-1.json')
+        if not valid_freeze_sentinel_repair(aborted,rejected):raise ValueError('Not the verified zero-action None-sentinel audit abort')
+        baseline=Path(read(repair_aborted_run/'plan.json')['paired_learned_B_campaign'])
+        if not dependency_released(read(baseline/'status.json'),process_alive(read(baseline/'status.json')['controller_pid'])):
+            raise ValueError('Original B dependency no longer safely complete')
+
     apps=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid','--format=csv,noheader'],text=True)
     if any(row.split(',')[0].strip()==gpu for row in apps.splitlines()):raise ValueError('GPU1 occupied, no fallback')
     if (ROOT/'runs/USER_PAUSED.json').exists():raise ValueError('User paused')
     c.mkdir();script=Path(__file__).resolve();(c/script.name).write_bytes(script.read_bytes())
-    training=read(Path(old['campaign'])/'training-report.json')
-    write(c/'plan.json',{'source':training['source'],'action_bounds':str(Path(old['campaign'])/'train-physical-diagnostic/action-bounds.json'),
-        'paired_learned_B_campaign':old['campaign'],'source_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),'max_actions':1714,'policy_training':'not_run'})
+    training=read(baseline/'training-report.json')
+    write(c/'plan.json',{'source':training['source'],'action_bounds':str(baseline/'train-physical-diagnostic/action-bounds.json'),
+        'paired_learned_B_campaign':str(baseline),'repair_of_setup_abort':str(repair_aborted_run) if repair_aborted_run else None,'source_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),'max_actions':1714,'policy_training':'not_run'})
     write(c/'previous-owner.json',old)
     status={'stage':'starting_source_physical_replay','controller_pid':os.getpid(),'active_pid':0,'gpu_uuid':gpu,
             'policy_inference_calls':0,'policy_training':'not_run','learned_policy_task_success':False}
@@ -196,7 +229,12 @@ def controller(c):
             save(stage='source_physical_replay_in_progress',active_pid=child.pid);code=child.wait(timeout=2400)
         save(active_pid=0,simulation_exit_status=code)
         if (c/'replay/result.json').exists():export(c)
-        save(stage='completed_source_physical_replay_NOT_PI0' if code==0 else 'source_physical_replay_failed_or_aborted_NOT_PI0')
+        result=read(c/'replay/result.json')
+        completed=replay_completed(code,result)
+        save(stage='completed_source_physical_replay_NOT_PI0' if completed else 'source_physical_replay_failed_or_aborted_NOT_PI0',
+             actual_source_commands=result.get('teacher_source_actions_executed',0),replay_completed=completed,
+             replay_inside_goal_sustained=result.get('replay_inside_goal_sustained',False),
+             result_stage=result.get('stage'),result_error=result.get('error'))
     except BaseException as error:
         if child is not None and child.poll() is None:
             os.killpg(child.pid,signal.SIGTERM)
@@ -206,6 +244,6 @@ def controller(c):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--campaign',type=Path,required=True);p.add_argument('--simulate',action='store_true');p.add_argument('--parent-pid',type=int);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--campaign',type=Path,required=True);p.add_argument('--simulate',action='store_true');p.add_argument('--parent-pid',type=int);p.add_argument('--repair-aborted-run',type=Path);a=p.parse_args()
     if a.simulate:simulate(a.campaign,a.parent_pid)
-    else:controller(a.campaign)
+    else:controller(a.campaign,a.repair_aborted_run)

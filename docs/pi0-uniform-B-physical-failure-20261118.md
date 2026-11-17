@@ -98,3 +98,7 @@ GPU0 seed10005原1000目标生成不变。GPU1/map指针已移交新source repla
 ## 测试
 
 新增B全链路释放门禁2项、持续失持时间线2项在服务器CPU通过；全本地186项142通过/44依赖skip。Mock/source gate单元测试不替代实际source0物理初始化/运行结果。用户survey、x目录及参考PDF未改未提交。
+
+## 02:26后续审计状态纠正
+
+首次source replay没有执行动作：原始result在initial no-assistance检查因未支持pinned freeze=None而abort，0/1714命令；旧parent仅按exit0误标completed。不能拿它推断source物理是否可行。保留原始证据，已按确切源码sentinel语义、raw值保留及严格完成内容验证修复只读harness，另开显式新attempt；见`docs/source0-physical-replay-audit-repair-20261118.md`。B原物理掉杯结果不受这项新诊断工具问题影响。

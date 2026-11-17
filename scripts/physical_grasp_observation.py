@@ -9,12 +9,27 @@ from pathlib import Path
 
 ARMS=('left','right')
 FIELDS=('constraint_active','object_in_hand','gripper_freeze','usd_ag_constraint_present')
+PINNED_MANIPULATION_SHA256='af1e0245078a69a67368be4e70af4f5b79190c7d7dcff4fe9be210da1c39b0ba'
 
 
-def snapshot_no_assistance(robot,prim_exists=None):
+def snapshot_no_assistance(robot,prim_exists=None,inactive_freeze_none_source=None):
     result={'source':'READ_ONLY_NO_ASSISTANCE_EVIDENCE_NOT_POLICY_INPUT_OR_GRASP_SUCCESS',
             'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            'grasping_mode':None,'errors':[],**{name:{arm:-1 for arm in ARMS} for name in FIELDS}}
+            'grasping_mode':None,'errors':[],'gripper_freeze_raw':{arm:'unobserved' for arm in ARMS},
+            **{name:{arm:-1 for arm in ARMS} for name in FIELDS}}
+    # None is NOT generally equivalent to false. This one installed source
+    # initializes freeze=None, then deploy_control uses `if freeze[arm]`.
+    # Permit that KNOWN inactive sentinel only after exact read-only source SHA
+    # validation; preserve raw None and provenance, never change robot state.
+    none_inactive=False
+    if inactive_freeze_none_source is not None:
+        try:
+            digest=hashlib.sha256(Path(inactive_freeze_none_source).read_bytes()).hexdigest()
+            if digest!=PINNED_MANIPULATION_SHA256:raise ValueError('Unaudited manipulation source SHA')
+            none_inactive=True
+            result['freeze_none_inactive_source_sha256']=digest
+            result['freeze_none_scope']='Exact pinned __init__ None sentinel; deploy_control truth-test is inactive. Raw None retained; no field mutation.'
+        except Exception as error:result['errors'].append('freeze_none_source: '+type(error).__name__+': '+str(error))
     try:
         mode=robot.grasping_mode
         if not isinstance(mode,str):raise TypeError('Unknown/non-string grasping mode')
@@ -30,8 +45,12 @@ def snapshot_no_assistance(robot,prim_exists=None):
             try:
                 value=values[arm]
                 if field=='gripper_freeze':
-                    if type(value) is not bool:raise TypeError('Expected recorded Boolean, not an unknown truthy object')
-                    result[field][arm]=int(value)
+                    result['gripper_freeze_raw'][arm]=value if value is None or type(value) is bool else 'unsupported_type:'+type(value).__name__
+                    if value is None and none_inactive:
+                        result[field][arm]=0
+                    elif type(value) is bool:
+                        result[field][arm]=int(value)
+                    else:raise TypeError('Freeze unknown; require Boolean or source-verified inactive None sentinel')
                 else:
                     # Never invoke __bool__ on an engine object/prim.
                     result[field][arm]=int(value is not None)

@@ -39,6 +39,25 @@ class NoAssistanceEvidenceTests(unittest.TestCase):
         del report['errors'];self.assertFalse(no_assistance_confirmed(report))
         report['errors']=None;self.assertFalse(no_assistance_confirmed(report))
 
+    def test_none_stays_unknown_without_exact_pinned_source_but_known_sentinel_preserves_raw(self):
+        import tempfile,hashlib
+        from unittest import mock
+        robot=self.robot();robot._ag_freeze_gripper={'left':None,'right':None}
+        report=snapshot_no_assistance(robot,lambda p:False)
+        self.assertFalse(no_assistance_confirmed(report));self.assertEqual(report['gripper_freeze']['left'],-1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'manipulation_robot.py';path.write_text('audited fixture source')
+            self.assertFalse(no_assistance_confirmed(snapshot_no_assistance(robot,lambda p:False,path)))
+            digest=hashlib.sha256(path.read_bytes()).hexdigest()
+            with mock.patch('physical_grasp_observation.PINNED_MANIPULATION_SHA256',digest):
+                report=snapshot_no_assistance(robot,lambda p:False,path)
+                self.assertTrue(no_assistance_confirmed(report))
+                self.assertIsNone(report['gripper_freeze_raw']['left'])
+                self.assertIsNone(robot._ag_freeze_gripper['left'])
+                self.assertEqual(report['freeze_none_inactive_source_sha256'],digest)
+                path.write_text('changed')
+                self.assertFalse(no_assistance_confirmed(snapshot_no_assistance(robot,lambda p:False,path)))
+
     def test_missing_arm_is_not_assumed_empty(self):
         robot=self.robot();del robot._ag_obj_constraints['right']
         report=snapshot_no_assistance(robot,lambda p:False)
