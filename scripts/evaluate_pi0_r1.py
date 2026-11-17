@@ -24,6 +24,7 @@ from pi0_rpc import infer_local
 from pi0_base_targets import absolute_base_to_native
 from rollout_motion_metrics import cup_motion_metrics
 from grasp_telemetry import read_grasp_telemetry
+from motor_contract import snapshot_motor_contract
 from state_policy_features import as_numpy
 from evaluation_split_contract import verify_evaluation_episode
 
@@ -126,6 +127,7 @@ def main():
         if int(og.sim.dump_state(serialized=True).numel())!=len(initial):raise ValueError('Serialized reset layout mismatch')
         og.sim.load_state(torch.tensor(initial,dtype=torch.float32),serialized=True)
         if args.grasping_mode=='physical':activate_physical_after_reset(env.robot)
+        result['runtime_motor_contract']=snapshot_motor_contract(env.robot)
         result['grasping_mode']=env.robot.grasping_mode
         audit=ObjectPoseAudit(env.env.task.object_scope)
         if series:

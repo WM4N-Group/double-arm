@@ -18,7 +18,7 @@ from momagen_pi0_schema import camera_keys,rgb_image
 def percentile(values,q):return float(np.quantile(values,q)) if np.size(values) else None
 
 
-def action_metrics(actions,observations,proposals,source_actions,source_states,execute_steps):
+def action_metrics(actions,observations,proposals,source_actions,source_states,execute_steps,effective_close_threshold=None):
     a=np.asarray(actions);s=np.asarray(observations);n=len(a)
     if a.shape!=(n,21) or s.shape!=(n,21) or n<1:raise ValueError('Invalid aligned R1 trace')
     close=a[:,13]<0;starts=np.flatnonzero(close&~np.r_[False,close[:-1]]);ends=np.flatnonzero(close&~np.r_[close[1:],False])
@@ -32,6 +32,15 @@ def action_metrics(actions,observations,proposals,source_actions,source_states,e
         'one_step_tracking_rmse_rad':float(np.sqrt(np.mean(lag**2))) if len(lag) else None,
         'reference_tracking_rmse_rad':float(np.sqrt(np.mean(src_lag**2))) if len(src_lag) else None,
         'tracking_scope':'left-arm commanded absolute q at step i vs actual q at i+1, not world EEF error; trajectories not speed-paired'}
+    report['first_close_scope']='Legacy first RAW NEGATIVE command, not necessarily the controller effective close threshold'
+    if effective_close_threshold is not None:
+        from motor_contract import binary_close_flags
+        effective=np.asarray(binary_close_flags(a[:,13],effective_close_threshold),bool)
+        onset=np.flatnonzero(effective&~np.r_[False,effective[:-1]])
+        report.update(effective_binary_close_threshold=float(effective_close_threshold),
+            effective_binary_close_steps=int(effective.sum()),effective_binary_close_runs=int(len(onset)),
+            first_effective_binary_close_step=int(onset[0]) if len(onset) else None,
+            first_effective_binary_close_video_seconds=float(onset[0]/30) if len(onset) else None)
     if len(starts):
         i=int(starts[0]);report.update(jaw_state_at_close=float(s[i,19]),jaw_state_one_second_later=float(s[min(i+30,n-1),19]),
             jaw_state_at_end=float(s[-1,19]),jaw_scope='sum of recorded finger joint positions, not calibrated fingertip gap')
@@ -42,7 +51,9 @@ def action_metrics(actions,observations,proposals,source_actions,source_states,e
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--evaluation',type=Path,required=True)
     p.add_argument('--source-provenance',type=Path,required=True);p.add_argument('--source-dataset',type=Path,required=True)
-    p.add_argument('--demo',default='demo_0');p.add_argument('--output',type=Path,required=True);args=p.parse_args()
+    p.add_argument('--demo',default='demo_0');p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--assume-pinned-r1-binary-input-0-1',action='store_true',help='Offline source-inferred threshold0.5; does NOT change actions or claim runtime fields were saved')
+    args=p.parse_args()
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('Explicit CPU-only analysis required')
     root=Path('/mnt/yuanyue/double-arm/runs')
     if not args.output.resolve().is_relative_to(root) or args.output.exists():raise ValueError('New remote report required')
@@ -57,7 +68,10 @@ def main():
     trace_path=rollout/(episode['demo']+'-trace.npz')
     with np.load(trace_path,allow_pickle=False) as trace:
         raw=trace['model_proposed_targets'] if result.get('action_representation')=='native' and 'model_proposed_targets' in trace else None
-        report=action_metrics(trace['actions'],trace['observations'],raw,source_actions,source_states,result['execute_steps'])
+        from motor_contract import choose_close_threshold
+        threshold,threshold_scope=choose_close_threshold(result.get('runtime_motor_contract'),args.assume_pinned_r1_binary_input_0_1)
+        report=action_metrics(trace['actions'],trace['observations'],raw,source_actions,source_states,result['execute_steps'],effective_close_threshold=threshold)
+        report['effective_close_threshold_evidence_scope']=threshold_scope
         report['eef_contact_telemetry_available']='post_step_eef_world_poses' in trace and 'post_step_cup_contact_finger_counts' in trace
         if report['eef_contact_telemetry_available']:
             poses=trace['post_step_eef_world_poses'];cups=trace['post_step_cup_positions'];contact=trace['post_step_cup_contact_finger_counts'][:,0]
