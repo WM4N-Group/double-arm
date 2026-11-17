@@ -7,9 +7,11 @@ from pathlib import Path
 import statistics
 
 
-def summarize(report):
+def summarize(report, treatments=('raw','clipped')):
     if not report.get('completed') or report.get('mode')!='TRAIN16_grasp_onset_offline_replication':
         raise ValueError('Completed explicitly scoped TRAIN report required')
+    if not treatments or any(t not in ('raw','clipped') for t in treatments):
+        raise ValueError('Unknown score treatment')
     samples=report['samples']
     keys={(s['source_demo'],s['phase'],s['seed']) for s in samples}
     episodes={s['source_demo'] for s in samples}
@@ -22,7 +24,7 @@ def summarize(report):
     for phase in ('close_onset','onset_plus15'):
         selected=[s for s in samples if s['phase']==phase]
         detail={}
-        for treatment in ('raw','clipped'):
+        for treatment in treatments:
             first=[s[treatment+'_first1'] for s in selected]
             ten=[s[treatment+'_first10'] for s in selected]
             valid=[m for m in first if m['left_gripper']['source_first_raw']<.5]
@@ -82,11 +84,41 @@ def summarize_width(report):
     return result
 
 
+def summarize_precision(report):
+    if not report.get('completed') or report.get('mode')!='TRAIN16_same_process_parameter_restore_precision':
+        raise ValueError('Completed explicitly scoped restore-precision report required')
+    conditions=('official_bfloat16_restore','preserve_float32_params')
+    samples=report['samples']
+    if len(samples)!=192 or set(s['condition'] for s in samples)!=set(conditions):
+        raise ValueError('Expected96 matched predictions per restore condition')
+    result={'scope':'Same-process parameter-restore comparison, model configured compute dtype unchanged; NOT full-FP32 compute or task evaluation',
+            'model_compute_dtype':report['model_compute_dtype'],'conditions':{},'matched_input_noise_pairs':0}
+    per_condition={}
+    for condition in conditions:
+        selected=[s for s in samples if s['condition']==condition]
+        adapted={'completed':True,'mode':'TRAIN16_grasp_onset_offline_replication','checkpoint':report['checkpoint'],
+                 'samples':selected,'seeds':report['seeds']}
+        result['conditions'][condition]=summarize(adapted,treatments=('clipped',))
+        per_condition[condition]={(s['source_demo'],s['phase'],s['seed']):s for s in selected}
+    for key,left in per_condition[conditions[0]].items():
+        right=per_condition[conditions[1]][key]
+        if left['input_sha256']!=right['input_sha256'] or left['noise_sha256']!=right['noise_sha256'] or left['frame']!=right['frame']:
+            raise ValueError('Restore comparison has unmatched observations/noise')
+        result['matched_input_noise_pairs']+=1
+    return result
+
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('report',type=Path);p.add_argument('--output',type=Path,required=True);p.add_argument('--width-intervention',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('report',type=Path);p.add_argument('--output',type=Path,required=True);p.add_argument('--width-intervention',action='store_true');p.add_argument('--restore-precision',action='store_true');a=p.parse_args()
+    if a.width_intervention and a.restore_precision:raise ValueError('One explicit summary mode required')
     if a.output.exists():raise FileExistsError(a.output)
-    result=(summarize_width if a.width_intervention else summarize)(json.loads(a.report.read_text()));result['report_sha256']=hashlib.sha256(a.report.read_bytes()).hexdigest()
+    result=(summarize_precision if a.restore_precision else summarize_width if a.width_intervention else summarize)(json.loads(a.report.read_text()));result['report_sha256']=hashlib.sha256(a.report.read_bytes()).hexdigest()
     a.output.write_text(json.dumps(result,indent=2,allow_nan=False))
+    if a.restore_precision:
+        for condition,summary in result['conditions'].items():
+            for phase,detail in summary['phases'].items():
+                print(condition,phase,json.dumps({k:v for k,v in detail['clipped'].items() if k!='per_episode'}))
+        return
     for phase,detail in result['phases'].items():
         print(phase,json.dumps(detail if a.width_intervention else {k:v for k,v in detail['clipped'].items() if k!='per_episode'},ensure_ascii=False))
 
