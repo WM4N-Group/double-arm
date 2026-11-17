@@ -50,3 +50,49 @@ Source gate失败时停止，不启动learned case，报告初始化/控制有�
 ## 测试
 
 本地173项129通过/44依赖skip；新增source replay完成门禁、局部assisted结果不能进入完整physical acceptance及标签隔离2项在服务器Python3.10也通过。Mock/contract测试不代表真实source回放或局部抓取已通过。
+
+## 21:42结果：相同已失败模型在pre-grasp初始化下真实抓起杯子（ASSISTED ONLY）
+
+**两case实际完成、sim exit0，workflow于21:42:29完成。** Source有效性门禁通过后才运行learned case，顺序与实际trace一致。
+
+| 指标 | source action replay（非模型） | learned original π₀ |
+|---|---:|---:|
+| 实际步数 | 120 | 120 |
+| 推理调用 | 0 | 12 |
+| teacher action records读取 | 120 | **0** |
+| cup-specific grasp report曾True | true | **true** |
+| assisted attachment曾出现 | true | **true** |
+| 最大杯子抬升 | 0.12181m | **0.13309m** |
+| 初始化后物体显式pose writes | 0 | 0 |
+| first effective close（runtime threshold0.5） | step1 | step3 |
+| ≥1左手finger-link接触帧 | 105/120 | 114/120 |
+| ≥2 finger-link接触帧 | 3/120 | 26/120 |
+| contact未知样本 | 0 | 0 |
+
+- Learned新初始化的body q最大差约0.000334rad、三相机source MAE4.95/8.82/5.88，gripper width初始误差约8.94e-8m。没有继承source replay闭合或attachment；nominal gate实际通过。
+- 新只读motor collector真实记录了binary/non-inverted/input[0,1]/output[-1,1]，threshold0.5现在有**实际runtime证据**，不是往旧trace回填的假设。Learned117个close步是一段`[3,119]`，不是117次抓取尝试。
+- Learned第一10步左臂target相对source replay RMSE约0.00340rad，仍能在本assisted条件下抓起；因此“晚关夹两帧”“任何target误差/clip”不能单独当所有失败的充分原因。它也不代表给出了通用精度容差或优于专家。
+- 杯子最大高度/接触数量较source高，不证明grasp质量更好；attachment、局部轨迹、采样和实际姿态都会影响指标，未测力，EEF-origin距离不是指尖净空。
+
+### 能确认什么 / 不能确认什么
+
+**可以确认：**这一具体已训练checkpoint并非完全没有学到“接近抓取条件后关夹并抬杯”的行为。真实相机+proprio→同原π₀模型→普通native控制，未用teacher action、planner或每步状态恢复，确实产生了局部杯子抓取与抬升。Source replay独立验证该初始化setup可用。
+
+**不可以确认：**完整起点出发的Tidy Table成功、导航成功、physical grasp、heldout/generalization或整篇论文复现。这里有明确的**privileged source635 pre-positioning、初始化holding/velocity操作和assisted constraint**。原3000步完整TRAIN/ASSISTED失败仍有效，物理/heldout门禁没有因局部结果解锁。
+
+这把排查重心收窄到**全流程到达pre-grasp状态、轨迹覆盖、误差累积/恢复**，但不是已经证明唯一根因。完整rollout与本局部case的初态、速度/控制器历史、长度、噪声路径也有区别；不能说已隔离“只有导航”这一因素。接下来的uniform-sampling B只改变训练采样，用新完整source0闭环验证，不把本4秒片段当最终成功。
+
+`task_success=false / physical_task_acceptance=false`在本诊断中意为**不具备/不宣称全任务验收**，不是声称本次另外测量了全部goal predicates并得出失败。
+
+### 可审阅的新模型局部片段
+
+```text
+/home/yuanyue/double-arm/outputs/demo-review/pi0-local-init635-ASSISTED-NOT-FULL-TASK-20261117/learned_pi0_local_grasp.mp4
+```
+
+- 4.000s、960×536、H264、60帧，小型压缩MP4。画面及片尾明确`ASSISTED LOCAL GRASP OBSERVED / LEARNED PI0 INIT635 / NOT FULL TASK OR PHYSICAL SUCCESS`。
+- 视频SHA256 `e453ccdb606cbf2d189342bbc999059536eef56a19906bafbc2d53445ec1ec61`；review JSON SHA256 `f8bd4252ebbc2716776e728abbefaf660fde81a2d2ac6d714f72b059cfca4cd3`。
+- 服务器完整解码通过；传输SHA一致，0/0.5/2/3.9秒接触图已目视检查。接触图SHA `9e8d7198c1bd8986fafa499f35e3d9287ea5126ef8f065496ddc78096d71bf82`。未声称本地ffmpeg解码（本地没有ffmpeg）。
+- CPU事后分析`campaign/local-forensics.json`与源码`analyze_pi0_local_grasp.py`，只读两份已完成trace，无模型/仿真调用；source动作只当明确标记的事后参照。
+
+新片段的模型仍是A final19999/full parameter SHA `ffe08f...b78180b`，不是下一uniform B权重。原100秒失败视频继续保留；没有拿这次局部assisted抓取覆盖原始端到端失败。
