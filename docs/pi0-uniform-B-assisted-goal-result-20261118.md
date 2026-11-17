@@ -84,3 +84,7 @@ A同base/20k、50%窗口oversampling从source0完整轨迹失败；B同base/20k�
 - 原source0/init1、物理模式、sync20/execute10/Gaussian10/native bounds/.98 planarity及原task验收不变。新CPU准备的no-assistance审计helper**没有接入此次in-flight eval**；不虚构新增USD/perstep观测已经存在。
 - GPU1锁仍覆盖全部自动评估链，CPU/低利用率间隙也不插队。只有TRAIN/physical实际通过，才可能原heldout/physical；失败就保留本B的新FAILED review。
 - GPU0原seed10005官方source generation继续，worker125/217942与最后global immutable QA180/314090分开；不把临时日志加到完成计数。没有新训练、labels/norm/adapter/sampler/eval改动或部署。
+
+## 01:28最终补记：TRAIN物理模式未过
+
+原physical流程于00:58:35实际结束：3000步任务失败，heldout未运行。检测到接触与短时抬杯，但约37.87秒开始失持下落，夹爪当时仍命令关闭；这不是任务成功或主动放杯。最新匹配FAILED视频、证据分级及独立source0物理动作回放见`docs/pi0-uniform-B-physical-failure-20261118.md`。本页00:26“进行中”段落保留历史，不再代表当前状态。
