@@ -23,6 +23,10 @@ GPU1 UUID固定，GPU0原始1000目标raw generation不变。**GPU1所有权覆�
 - 训练末步loss约0.001564、grad norm约0.29886，均有限，**不代表抓取成功**。当前无本checkpoint新闭环结果或失败视频；旧v3失败仍是最近已完成的learned-policy任务结果。`training_is_diagnostic=true / formal_training_completed=false`保持不变。
 - GPU0原workflow继续，worker内4个shard共100条raw assisted episodes/174,102帧已finalized，进入seed10004；这不是新的跨worker全局去重结果、训练split、物理或策略成功。不重启生成器。
 
+## 18:29更新：独立重载通过，但新闭环仍失败
+
+完整模型独立重载已通过；新final19999 TRAIN/ASSISTED于18:13完成3000步，未抓杯、未触发assisted attachment，任务失败。按门禁没有运行TRAIN/physical或heldout/physical。旧“闭环待执行”段落是历史状态；当前权威结论、匹配失败录像及18:28新离线反馈probe见`docs/pi0-relative-full-demo-failed-review-20261117.md`。原workflow已退出释放GPU1，新probe指针不能再按旧workflow推断卡空闲。
+
 ## 1. 训练配方：明确的新实验
 
 - 原版π₀，官方pi0_base初始化、fresh AdamW，rank32，batch1。不是旧v3或小窗口拟合权重warm start。

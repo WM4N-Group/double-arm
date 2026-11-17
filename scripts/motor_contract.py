@@ -30,7 +30,19 @@ def snapshot_motor_contract(robot):
     for name in ('base', 'trunk', 'arm_left', 'arm_right', 'gripper_left', 'gripper_right'):
         try:
             controller = robot.controllers[name]
-            report[name] = {'class': type(controller).__name__, 'motor_type': controller.motor_type,
+            # The pinned MultiFingerGripperController exposes _motor_type but
+            # not motor_type. Missing one optional attribute must not discard
+            # its independently available mode/limits or invent their values.
+            motor_type_attribute = 'motor_type'
+            try:
+                motor_type = controller.motor_type
+            except AttributeError:
+                motor_type_attribute = '_motor_type'
+                motor_type = getattr(controller, '_motor_type', None)
+                if motor_type is None:
+                    report['errors'].append(f'{name}.motor_type: neither public nor private attribute available')
+            report[name] = {'class': type(controller).__name__, 'motor_type': json_value(motor_type),
+                'motor_type_attribute': motor_type_attribute if motor_type is not None else None,
                 'mode': json_value(getattr(controller, '_mode', None)),
                 'inverted': json_value(getattr(controller, '_inverted', None)),
                 'use_delta_commands_raw_flag': json_value(getattr(controller, '_use_delta_commands', None)),

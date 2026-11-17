@@ -35,6 +35,35 @@ class MotorContractTests(unittest.TestCase):
         self.assertEqual(choose_close_threshold(snapshot,False)[0],.5)
         self.assertEqual(len(snapshot['errors']),5)
 
+    def test_pinned_gripper_private_motor_type_preserves_other_real_fields(self):
+        class Controller:
+            _motor_type='position'
+            _mode='binary'
+            _inverted=False
+            _command_input_limits=([0.],[1.])
+            _command_output_limits=([-1.],[1.])
+        class Robot:
+            controllers={'gripper_left':Controller()}
+        snapshot=snapshot_motor_contract(Robot())
+        self.assertEqual(snapshot['gripper_left']['motor_type'],'position')
+        self.assertEqual(snapshot['gripper_left']['motor_type_attribute'],'_motor_type')
+        self.assertEqual(choose_close_threshold(snapshot)[0],.5)
+        self.assertEqual(len(snapshot['errors']),5)
+
+    def test_missing_motor_type_does_not_erase_known_mode_or_limits(self):
+        class Controller:
+            _mode='binary'
+            _inverted=False
+            _command_input_limits=([0.],[1.])
+            _command_output_limits=([-1.],[1.])
+        class Robot:
+            controllers={'gripper_left':Controller()}
+        snapshot=snapshot_motor_contract(Robot())
+        self.assertIsNone(snapshot['gripper_left']['motor_type'])
+        self.assertEqual(snapshot['gripper_left']['mode'],'binary')
+        self.assertEqual(choose_close_threshold(snapshot)[0],.5)
+        self.assertEqual(len(snapshot['errors']),6)
+
     def test_readonly_metadata_partial_failures_are_explicit(self):
         class Robot:
             controllers={}
