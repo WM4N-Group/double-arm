@@ -23,6 +23,13 @@
 - The isolated batch64 accumulation preflight used GPU1 only after its full coverage/evaluation workflow released it. At2026-11-17 02:16 the HOST-FP32 variant passed64 real microsteps/1 optimizer update; the device-resident variant OOMed. This is native/mean-std memory/count smoke, NOT direct real batch64 numerical equivalence, full training stability, or paper-aligned training/task success. See the latest stage notes below.
 - See `docs/two-gpu-paper-data-workflow-20261116.md`. Keep healthy unchanged heartbeats quiet, deliver meaningful new policy failures with the matching checkpoint's failed review videos, and never relabel source-generation/replay videos as learned-policy demos.
 
+### LATEST CPU diagnostic alongside generation (2026-11-17 10:13 CST)
+
+- Both GPUs stay on official source generation: GPU0seed10002 / GPU1seed20001. Latest completed cross-pool audit at09:06 is75 eligible raw episodes/130,964frames,0 duplicate/old16+1 overlap,6 candidate-only cleaning frames; no split/norm/cleaning applied. Routine count growth remains quiet.
+- To investigate v3's failed source-condition policy WITHOUT another GPU job, launched existing TRAIN-only offline sampling calibration on final89999: `/mnt/yuanyue/double-arm/runs/pi0-v3-train-only-sampling-calibration-20261117-101319`, launcher166022/Python166025; pointer`runs/latest-pi0-train-calibration.txt`. CPU8–11/nice10, explicitCUDAempty/JAXcpu,40min watchdog. Available memory/load checked first; existing GPU jobs unchanged. No formal training/checkpoint/simulator control, no heldout tuning or online RGB substitution.
+- Uses3 source train/demo_0 frames0/571/1142; compares10/50 denoising steps and fixedGaussian/zero noise. Labels are offline scoring ONLY. Source frames NEVER become a live-policy camera fix. A best train-only metric is not task success and does not auto-change production sampling.
+- benchmark's old `base_rmse_first_10` MIXES XY(m)/yaw(rad), not a pure metre distance orZ. Judge unitless normalized MSE/coordinate predictions with caveats. Outer status saysloading until process exit; actual partial progress is report.samples/log. See failed-review doc's10:13 section. Do not confuse this CPU process with an available or third GPU.
+
 ### LATEST observed healthy handoff (2026-11-17 08:06 CST)
 
 - GPU1 seed20000 auxiliary25 actually finalized at07:57:19 (25 episodes/43,282frames) and exited before finite handoff. Cross-pool QA PASSED:50 eligible unique raw episodes/87,049frames,0 internal or old16/1 fingerprint overlap;6 candidate qpos-cleaning frames only, no cleaning/split/norm change.

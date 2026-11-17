@@ -49,3 +49,22 @@
 - 第三次独立尝试：`/mnt/yuanyue/double-arm/runs/pi0-accumulation-gpu-preflight-typed-optax-20261117-011522`，watchdog PID149207；开始时仍未验证GPU fit，以其report实际64 microsteps / 1 optimizer update及有限性结果为准，OOM也必须诚实保留。
 - 本地114项测试（87通过、27skip），包括FAILED/ABORTED标签不能被scope覆盖、归档marker严格验证的新增夹具。没有安装 / 升级依赖。
 - 当前GPU1指针为`runs/latest-gpu1-job.json`，合并map已更新；legacy `latest-single-gpu-job.json`保留旧coverage结果以供门禁 / 溯源。不要只看legacy pointer误以为GPU1仍在跑评估。
+
+## 10:13追加：CPU-only训练集采样校准（尚无新闭环结论）
+
+为了继续检查“新增90k后为什么来源条件仍失败”，在不占用两张生成GPU、不改任何在线动作的前提下，启动既有`benchmark_pi0_sampling.py`，这次对象是**coverage v3 final89999**，不是重复旧30k权重的校准：
+
+```text
+/mnt/yuanyue/double-arm/runs/pi0-v3-train-only-sampling-calibration-20261117-101319
+launcherPID166022 / Python166025
+runs/latest-pi0-train-calibration.txt
+```
+
+- 服务器实测还有约61GiB可用内存、32在线CPU中load约18，才启动此低优先级CPU任务。CPU亲和性8–11、nice10、OMP/BLAS2线程，`CUDA_VISIBLE_DEVICES=''` / `JAX_PLATFORMS=cpu`，40分钟watchdog；`nvidia-smi`仍只有原两条生成进程。
+- 先核对final89999已提交、native/mean-std适配器契约及实际saved norm SHA；训练warm-start opt-in在此CPU推理进程清空。没有新训练或checkpoint写入。
+- 固定TRAIN/demo_0的三个离线source frame（0/571/1142），同样的真实三图 / 原proprio / instruction，比较10/50去噪步与固定Gaussian/zero噪声。**source RGB仅用于离线审计，从不替代在线相机**；源动作仅评分，不输入模型，也不控制模拟器，不使用heldout来挑设置。
+- 原benchmark的base RMSE将XY米与yaw弧度混合，不能读作纯米距离或与Z混淆。优先查看unitless normalized MSE以及逐坐标base预测；任何train-only最优设置都不是闭环成功证明，不自动修改生产参数。
+- 旧30k校准报告仍保留在原baseline campaign。可参考差异，但旧报告没有完整源码hash等当次证据，不将跨报告差异当严格单变量因果实验。
+- 本次source快照、SHA、launch脚本、exit status与JSON留在独立目录。运行中外层`status.json`可能仍是loading，实际样本进度看`report.json`/log；退出后才写完整成功/超时状态。启动或离线低误差不能替代失败视频的真实闭环结果。
+
+数据侧10:06两卡仍正常生成（GPU0seed10002 / GPU1seed20001），最后已完成跨池审计仍75条 /130,964 raw frames，没有因校准改变数据、清洗、split、norm或卡分配。
