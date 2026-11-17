@@ -14,6 +14,15 @@ runs/latest-multi-gpu-jobs.json
 
 GPU1 UUID固定，GPU0原始1000目标raw generation不变。**GPU1所有权覆盖训练→保存→CPU重载→自动评估的整个workflow，卡看起来空闲/CPU加载也不能插入其它GPU任务。** 旧`latest-pi0-relative-joint-fit.txt`、`latest-pi0-single-demo-fit.txt`均只是已完成小诊断，不再代表当前卡空闲。
 
+## 17:24更新：20k真实更新与最终保存完成，独立重载进行中
+
+- 2026-11-17 **17:23:35 CST**，训练报告实际进入`completed_full_demo_training_restore_required`；父控制器于17:23:37确认trainer **exit0**，切换到`relative_full_demo_checkpoint_CPU_reload`。不是只按loss日志推测完成。
+- 真实optimizer updates、AdamW count、LR count均为 **20000**；最终`19999/_CHECKPOINT_METADATA`及`assets/r1-relative-profile-contract.json`实际存在。4999/9999/14999中间点保留。
+- 最终完整参数SHA256：`ffe08f59577357a9523ce148f13555960fcdb20e3f8150216986de830b78180b`；保存dtype计数FP32 **495,908,624**、BF16 **2,819,996,672**。norm SHA256：`77f6443649bf3468ebd164f27cb21f01898f89f42f8fa27faf50c89f4bd10fc5`。这是保存时报告/contract证据，**独立CPU重载校验仍未完成**。
+- 独立重载PID199365，输出应为本campaign的`checkpoint-reload.json`；必须实际达到`cpu_reload_parameters_exact_actions_finite_NOT_task_success`才可进入自动闭环。GPU1仍归整个workflow持有，CPU重载阶段不得插队。
+- 训练末步loss约0.001564、grad norm约0.29886，均有限，**不代表抓取成功**。当前无本checkpoint新闭环结果或失败视频；旧v3失败仍是最近已完成的learned-policy任务结果。`training_is_diagnostic=true / formal_training_completed=false`保持不变。
+- GPU0原workflow继续，worker内4个shard共100条raw assisted episodes/174,102帧已finalized，进入seed10004；这不是新的跨worker全局去重结果、训练split、物理或策略成功。不重启生成器。
+
 ## 1. 训练配方：明确的新实验
 
 - 原版π₀，官方pi0_base初始化、fresh AdamW，rank32，batch1。不是旧v3或小窗口拟合权重warm start。
