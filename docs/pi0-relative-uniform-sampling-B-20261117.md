@@ -83,3 +83,7 @@ runs/latest-official-raw-pool-audit.txt
 ```
 
 Report SHA256：`fbe258ef18ead6e1a1c5c763e0508473b9a43571d1147fcd29aaadc11b279d42`。14个candidate frozen-segment frames、覆盖gripper transitions0；精确author joint subset未核实，**未实际cleaning/split/normalization修改**。GPU0 seed10005继续，GPU1 B训练未被中断。
+
+## 11月18日00:26：20k/重载完成，辅助目标谓词满足；physical仍在运行
+
+完整source0 TRAIN/ASSISTED达到原inside目标（1694步），但assisted attachment确实存在且最后杯子仍被报告拿持，未观察到放开。不能把官方目标true说成无辅助抓取或已放下。完整证据、匹配B视频与当前TRAIN/physical状态见`docs/pi0-uniform-B-assisted-goal-result-20261118.md`。自动评估仍占有GPU1，不启动其它任务、不改任何in-flight代码或验收条件。
