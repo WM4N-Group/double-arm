@@ -56,3 +56,6 @@
 - `latest-pi0-single-demo-fit.txt`与GPU1/combined map已移至这个新尝试。13:39时仅是启动/初始化，GPU实际fit和2000步完成数仍待实际报告；不宣称资源修正已经成功。B只有A完整通过后才开始。
 
 13:41补充：allocator90尝试已实际恢复A完整模型，初始全参数/dtype hash与上次0-update尝试逐bit一致（`a3ee6...28e1b`），trainable count495,908,624；处于初始离线采样编译，还未宣称完成真实梯度。两项真实CPU NNX fixture（storage分区和小模型完整init一致性）通过，真实pi0形状分区也通过；本地143项测试107 passed/36 dependency skips，服务器新增8项精度汇总/拟合计划/NNX测试通过。
+
+
+13:43真实梯度进展：allocator90 A已完成225/2000个optimizer updates，最后记录loss约0.04566、grad_norm约1.608且有限。初始完整参数hash与旧0-step尝试一致，说明这次修正没有换模型。这里只验证了当前实际更新能运行，不等于2000步稳定通过、抓取转折拟合成功或B已完成；B继续按父控制器门禁等待A完整完成。
