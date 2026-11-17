@@ -57,3 +57,9 @@ GPU0仍为原官方1000-target数据生成，未中断；当时seed10004在合�
 ## 测试与保留项
 
 本地176项132通过/44依赖skip；新uniform sampler覆盖/界限2项及local forensics连续close区间1项在服务器CPU也通过。既有profile/Orbax fixture仍在原测试集中；本新run最终参数验证以实际报告为准，不用fixture替代。用户survey与x目录未改未提交，原PDF、数据、权重与assets不动。
+
+## 22:01状态补记
+
+B仍在HOST缓存，22:00实查801/1714帧、0 optimizer updates、无error；不是已完成模型初始化或实际梯度通过。不要用controller的training标签替代worker实际stage。
+
+GPU0 seed10004已真实exit0/finalized25（35 attempts/25 successes/10 failures），primary worker累计**125 raw episodes /217,942帧**，原控制器自动进入seed10005，新sim cold-start。这里只是worker内计数；最后跨池immutable QA仍155/270,250 snapshot，**没有直接把它与旧aux计数相加宣称新全局180**。GPU0没有被重启或占用来做策略测试。
