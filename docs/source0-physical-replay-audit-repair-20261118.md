@@ -67,3 +67,7 @@ GPU0原worker已完成150raw episodes/261,496 frames并进入seed10006，但最�
 ## 测试
 
 无辅助观察器7项、回放完成/repair门禁4项在服务器Python3.10通过；本地189项145通过/44依赖skip。新增测试包括：exit0不能掩盖abort/0动作、已知setup错误精确匹配、默认None未知、确切源码sentinel保留原值、源码改动拒绝。没有把mock确认写成实际physical通过。
+
+## 03:27完成补记
+
+sentinel-v2已真实通过source0初始化/无辅助检查，并执行1714/1714命令，02:36:32完成；inside目标78帧，末段释放后仍inside，3449份边界无辅助样本全已知0。它是专家reference，不是π₀成功；详见`docs/source-physical-reference-result-20261118.md`。首次0动作abort的原始证据不覆盖/不删除。
