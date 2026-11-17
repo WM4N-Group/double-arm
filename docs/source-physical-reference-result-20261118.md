@@ -98,3 +98,7 @@ controller222667 / sim222670 / watchdog222663
 ## 测试
 
 新recorded-tape completion fixture1项及XY ZW逆旋转/未知拒绝数值2项在服务器CPU通过；全本地192项146通过/46依赖skip。它们不代替实际GPU replay结果；当前主线学得π₀physical结果仍为B失败，heldout未测。
+
+## 04:27更新：B固定命令确切复现掉杯
+
+新recorded-B回放已实际完成3000步，observations/actions/cup/EEF/contact/grasp六数组与原live B逐元素一致，失持仍在step1136；因此不需要在线模型/RPC等待来复现这次失败。新的base-prefix OFFLINE动作干预已启动，不是live π₀修复；详见`docs/B-command-tape-localization-20261118.md`。Source replay成功仍只归属reference，未变成learned success。
