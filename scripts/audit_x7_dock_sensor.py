@@ -135,6 +135,9 @@ class SampledWorld(GuardWorld):
             observed=raw;low,move=correct_sample(raw,sampled_state,self.link_poses(),self.radii,self.config.get('raw',False))
         return observed,self.rear_bound(low,age),move
 
+    def observe_active_packet(self,k,sample_k,observed,lower,qv):
+        """Optional fault-latch hook; independent of geometry scoring."""
+
     def drive(self,a):
         if not self.armed:return PickupWorld.drive(self,a)
         k=len(self.applied); self.begin_sensor_substep(k); active=self.tick>=self.arm_stage or self.guard.state!='pass'; observed=None; low=None
@@ -153,7 +156,9 @@ class SampledWorld(GuardWorld):
                 if raw is not None and age<=MAX_AGE:
                     observed,low,move=self.lower_from_packet(raw,sampled_links,age)
             if active:
-                g=self.guard; before=g.state;q=self.qv(self.base)
+                g=self.guard;q=self.qv(self.base)
+                self.observe_active_packet(k,sample_k,observed,low,q)
+                before=g.state
                 # Enforce a rear reading definitively acquired after latching
                 # prior to automatic retreat. Only the measured lower bound,
                 # not the actual obstacle geometry/event, decides motion.
