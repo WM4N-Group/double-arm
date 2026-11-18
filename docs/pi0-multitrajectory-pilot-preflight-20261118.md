@@ -1,0 +1,22 @@
+# π₀ 多轨迹试训：冻结候选与 TRAIN-only 原生分位数（2026-11-18 15:43 CST）
+
+先准备下一次 OFFICIAL π₀ 多轨迹对照，不再在单条 B 上增加更新数。**这一轮只运行 CPU，未制作 LeRobot 样本、未写运行时 norm、未开始训练、未启动新的 GPU 任务。**
+
+## 实际固定的 225 + 25 条完整回合
+
+输入为跨池 QA 的 280 条已定稿官方 assisted 原始示范 / 488651 帧（`official-raw-pool-audit-20261118-122926`）；先排除 8 条物理专家探针及旧 16/1 split 的精确指纹。新版哈希排序从一整个独立生成分片选 25 验证条（seed 20000），训练取其余分片中的 225 条；验证分片及 seed 都不出现在训练中。预先固定方法，尚未见到专家物理结果，不事后挑好轨迹。单个 D0 验证分片只能用来作离线开发，不能宣称未见场景泛化或替代正式无辅助闭环评估。
+
+- TRAIN：**225 条 / 393802 帧**；验证：**25 条 / 43282 帧**。
+- 远程 `/mnt/yuanyue/double-arm/runs/pi0-multitrajectory-pilot-manifest-20261118-154313/split-candidate.json`；SHA `1a0517801299e46107a2f58ece715be3f8a0e46d1bb94be4475c6c4571beb2be`。
+- 数据未清洗（端点规则候选不是实际删除帧），未把原 assisted 改标为 physical，也未修改旧 data / checkpoint / config。
+
+## CPU 统计结果，不是新的运行时参数
+
+用 TRAIN 393802 个原始 observation/action 向量算 1%/99% 经验分位数，逐条重验 FP32 动作 + 初始 proprio 指纹；未读取验证观测或动作。此处是**原生动作空间**（局部增量底盘、绝对关节、原夹爪），作者编码尚未锁定，不能移植到相对关节变换后，也不能给 B/v3 换 norm。
+
+- `native-raw-train-quantiles.json` SHA `a631333467a9687f6a4efa2f2bba3b40deb1d8e1a54c61770805cf5e65f3ff7d`。
+- 21 个动作维度中 `right_gripper_command` 分位数跨度为零；单独数全体原始 TRAIN 命令确认 **393802/393802 为 +1**，不是分位数忽略了稀少右爪动作。其他动作维度和 21D proprio 均无零分位数跨度。右爪常量需由新运行时规范明确处理并往返测试，不能直接除零，也不能据此称已验证双臂协同抓取。
+
+脚本 `/home/yuanyue/double-arm/scripts/freeze_pi0_multitrajectory_pilot.py`，测试覆盖带排除项的可复现分割与不可行时拒绝跨分片补足。
+
+仍以 GPU1 现有辅助数据采集自然退出后的 **physical-only** 8 条专家回放为首个物理诊断；该队列 239122 未启动 GPU，和两卡目前运行无冲突。下一步另行确定动作表示、清洗和常量轴处理并核验 effective batch，最终只用物理留出闭环验收新策略；225/25 不冒称论文正式的 900/100。
