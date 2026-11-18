@@ -64,3 +64,9 @@ B assisted 在 685–688 步的左手杯接触 link 数为 `0,1,2,2`，两次较
 新增 `/home/yuanyue/double-arm/scripts/run_B_paired_attachment_replay.py`。只允许在 GPU1 的整项 aux100 成功退出之后（状态验收满 100 条、控制器/子进程已退、无 GPU1 compute process、取得同一 UUID 锁）显式启动；GPU0 不碰，不能用分片间的暂时空卡。两个分支各用一个新模拟器进程、同一 source0 只加载一次、相同 20 次刷新与 1200 个原始命令，除此之外只切换 `assisted` / `physical`。实际执行命令、位姿、手指接触和 Python/USD 边界证据与模式标注视频各自落盘，完整两个分支后才跑 CPU 比较验收。无 PI₀ 推理、无专家动作接管、无新训练；专家数据只用于初始化和身份核查。已知风险：实际模拟器集成和阈值可行性尚未实跑，不能预报成功。
 
 服务器 `--check-only` 已读实际冻结 B 命令、action limits 和 HDF5 frame0 并核验 SHA；返回 `gpu_launch_performed=false`，GPU1 aux100 仍活跃且仅验收 25/100，因此未启动。释放门禁测试本地及服务器通过，数值测试服务器 3 项通过。下一次实跑需要 GPU1 确认释放后显式给 `--campaign` 一个新的远程目录，不创建等待或抢占进程。
+
+### 15:25 跨分片专家面板的八条实际输入已验收（只读 CPU）
+
+`/home/yuanyue/double-arm/scripts/verify_expert_physical_pilot_inputs.py` 从冻结 audit 重建相同的 8 条名单；核对八个正式分片的 generation verdict / manifest SHA、数据集路径、D0/30Hz/assisted 元数据、21 维 FP32 原动作和帧对齐、动作与初始 proprio 指纹、每个源 frame0 的序列化状态与三路 RGB 的单独 SHA。实际共 **13,567 条动作**，首帧均记录双手未抓取，全部源状态宽度 3082；这些是原始 HDF5 证据，不证明实际重置无约束或任何物理结果。没有裁剪专家动作、套用旧 16 条训练的经验上下界、重抽名单或输出训练集。以后运行须复查 SHA 并校验实际加载布局、真实观测和两手无辅助，不能把源文件标志当仿真证据。
+
+远程报告 `/mnt/yuanyue/double-arm/runs/expert-physical-pilot-inputs-20261118-152505/report.json`（SHA `26758174a7dea626ca74dcba4df29f3c3b3d80db1395e53454d32e4a27825a2d`）。没有启动新的仿真或抢占两卡运行中的采集；当前没有新策略或物理回放结果。
