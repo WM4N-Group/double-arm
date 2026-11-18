@@ -164,7 +164,7 @@ def make_plan(arms, handle_x, pick_y, object_x, base_goal):
     return np.concatenate(result,axis=0),np.asarray(phases,dtype=np.uint8)
 
 
-def create_tote(center, handle_x):
+def create_tote(center, handle_x, *, yaw=0.):
     # Handle rails are part of one rigid tote; no robot/object attachment.
     # The fingers pinch short blocks widened away from the rim.
     parts = [(0.,0.,0.,1.0,.19,.022,[.34,.58,.21,1]),
@@ -179,7 +179,8 @@ def create_tote(center, handle_x):
     xyz=[r[:3] for r in parts]; types=[p.GEOM_BOX]*len(parts)
     col=p.createCollisionShapeArray(shapeTypes=types,halfExtents=half,collisionFramePositions=xyz)
     vis=p.createVisualShapeArray(shapeTypes=types,halfExtents=half,visualFramePositions=xyz,rgbaColors=[r[-1] for r in parts])
-    body=p.createMultiBody(baseMass=TRAY_MASS,baseCollisionShapeIndex=col,baseVisualShapeIndex=vis,basePosition=center)
+    body=p.createMultiBody(baseMass=TRAY_MASS,baseCollisionShapeIndex=col,baseVisualShapeIndex=vis,basePosition=center,
+                           baseOrientation=p.getQuaternionFromEuler([0.,0.,yaw]))
     p.changeDynamics(body,-1,lateralFriction=.86,spinningFriction=.001,restitution=0.)
     return body
 
@@ -222,7 +223,7 @@ class World:
         self.setup_stations(goal_x)
         self.floor=box([.90,0.,-.023],[16.,16.,.046],[.23,.30,.39,1])
         self.station_init=[]
-        self.tote=create_tote(self.start,handle_x)
+        self.tote=self.setup_tote(handle_x)
         for _ in range(96):
             self.drive(np.r_[0.,0.,arms[0].home,arms[1].home,OPEN,OPEN]); p.stepSimulation()
             self.check_constraints()
@@ -232,6 +233,9 @@ class World:
         self.settle_contacts=sum(len(p.getContactPoints(self.robot,t)) for t in self.tables)
         self.settle_self_contacts=len(p.getContactPoints(self.robot,self.robot))
         self.state_writes_during_actions=0
+
+    def setup_tote(self, handle_x):
+        return create_tote(self.start,handle_x)
 
     def setup_stations(self, goal_x):
         # Table deck, legs, cantilevers and braces share identical visible/collision geometry.
