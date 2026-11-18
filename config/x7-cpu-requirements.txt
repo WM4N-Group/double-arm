@@ -1,0 +1,5 @@
+# Remote X7 CPU pilot, CPython 3.10 / Linux x86_64. No Isaac or CUDA required.
+numpy==1.26.4
+scipy==1.15.3
+Pillow==11.0.0
+pybullet==3.2.7

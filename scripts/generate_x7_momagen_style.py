@@ -52,10 +52,11 @@ def read_sources(folders, model_sha):
     pool=[]
     for folder in folders:
         r=folder/'report.json'; report=json.loads(r.read_text())
-        if report['asset_sha256']!=model_sha:
+        if (report['asset_sha256']!=model_sha or
+            not report.get('collision_contract','').startswith('v2 fully collidable station compounds')):
             raise ValueError(f'Archived source model mismatch: {folder}')
         for row in report['case_reports']:
-            if row['mode']!='mobile' or not row['success']:
+            if row['mode']!='mobile' or not row['success'] or row.get('robot_station_clearance_pass') is not True:
                 continue
             path=folder/row['trace']
             if digest(path)!=row['trace_sha256']:
@@ -119,12 +120,13 @@ def retarget(source, target, urdf):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('asset',type=Path);ap.add_argument('out',type=Path)
+    ap.add_argument('--cad-zip',type=Path,required=True)
     ap.add_argument('--sources',type=Path,required=True,nargs='+')
     ap.add_argument('--rgb',action='store_true');ap.add_argument('--review-seed',type=int,choices=[6000])
     args=ap.parse_args()
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='': ap.error('Remote CPU only: set CUDA_VISIBLE_DEVICES to empty')
     args.out.mkdir(parents=True)
-    urdf=make_model(args.asset,args.out/'model'); model_sha=digest(urdf); pool=read_sources(args.sources,model_sha)
+    urdf=make_model(args.asset,args.out/'model',args.cad_zip); model_sha=digest(urdf); pool=read_sources(args.sources,model_sha)
     (args.out/'source-segments.json').write_text(json.dumps([{k:r[k] for k in ('seed','sha256','geometry','events')} for r in pool],indent=2)+'\n')
     result=[]
     p.connect(p.DIRECT)
@@ -168,7 +170,8 @@ def main():
        'split_rule':'disjoint seeds and chassis-travel bands; one scene family, not generalization',
        'sources_manifest_sha256':digest(args.out/'source-segments.json'),'attempts_manifest_sha256':digest(args.out/'attempts.json'),
        'counts':{s:{'attempts':sum(r['split']==s for r in result),'accepted':sum(r['split']==s and r['success'] for r in result)} for s in SPLITS},
-       'dataset':'accepted per-episode NPZs; RGB before indexed action; rejected candidates never enter accepted directory'}
+       'dataset':'accepted per-episode NPZs; RGB before indexed action; rejected candidates never enter accepted directory',
+       'collision_contract':'v2 fully collidable station compounds; per-substep closest distance and contact gate'}
     (args.out/'summary.json').write_text(json.dumps(m,indent=2)+'\n')
     return 0 if all(group['accepted'] for group in m['counts'].values()) else 1
 

@@ -49,3 +49,6 @@ __pycache__/
 config/licenses.local.env
 
 config/*.local.env
+
+# Original vendor drop: keep the checked archive on project storage.
+/x/

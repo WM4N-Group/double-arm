@@ -22,9 +22,11 @@ from scipy.spatial.transform import Rotation
 
 from x7_pick_place_pilot import CONTROL_HZ, HZ, OPEN, CLOSE, Kinematics, box
 from x7_sync_gripper_preflight import GEAR_RATIO, MASTER_FORCE_N, SYNC_FORCE_N, SYNC_MAX_OFFSET_M, v2_model
+from x7_station_collision import (CAD_MOUNT_Z, STATION_CLEARANCE_M, STATION_SCAN_M, cad_envelopes,
+                                  compound_station, station_clearance, station_parts)
 
 TABLE_Z = 1.25
-PARK_Y = -.387
+PARK_Y = -.400
 CARRY_X = 2.65
 TRAY_MASS = .64
 SUPPORT_Z = TABLE_Z + .011
@@ -36,11 +38,11 @@ CONTACT_THRESHOLD_N = .12
 AXES = ('base_x', 'base_y', 'base_yaw')
 
 
-def make_model(source, out):
+def make_model(source, out, cad_zip):
     model = v2_model(source, out)
     xml = ET.parse(model)
     root = xml.getroot()
-    root.set('name', 'x7_duo_mobile_carry_v1')
+    root.set('name', 'x7_duo_mobile_carry_collision_v2')
     # Mirror the complete v2 gripper, retaining both original arm chains.
     for name in ('proxy_finger_a', 'proxy_finger_b', 'proxy_palm'):
         link = root.find(f"link[@name='{name}']")
@@ -68,15 +70,16 @@ def make_model(source, out):
     joint('base_x', 'carry_anchor', 'carry_x', 'prismatic', '1 0 0')
     joint('base_y', 'carry_x', 'carry_y', 'prismatic', '0 1 0')
     joint('base_yaw', 'carry_y', 'carry_yaw', 'revolute', '0 0 1')
-    joint('cad_base_mount', 'carry_yaw', 'base_link', 'fixed', xyz='0 0 1.77', rpy=f'0 {-math.pi/2} 0')
-    # Bounding collision proxies in the base coordinate frame (not the detailed CAD mesh).
-    # The upper torso and platform will physically collide, without floor-constrained wheel contacts.
-    base = root.find("link[@name='base_link']")
-    for xyz, size in [('-1.436 -.238 0', '.65 .92 .63'), ('-.615 -.091 0', '.66 .15 .157'),
-                      ('-.228 -.103 0', '.265 .29 .31')]:
-        col = ET.SubElement(base, 'collision')
-        ET.SubElement(col, 'origin', xyz=xyz)
-        ET.SubElement(ET.SubElement(col, 'geometry'), 'box', size=size)
+    joint('cad_base_mount', 'carry_yaw', 'base_link', 'fixed', xyz=f'0 0 {CAD_MOUNT_Z}', rpy=f'0 {-math.pi/2} 0')
+    # Conservative boxes bound both the raw CAD and the mesh shown in the video.
+    # Collision shapes and floating-point hash are part of the new model identity.
+    proxy=cad_envelopes(cad_zip,model.parent/'meshes'/'base_link.STL')
+    base=root.find("link[@name='base_link']")
+    for part in proxy['parts_in_cad_frame']:
+        col=ET.SubElement(base,'collision')
+        ET.SubElement(col,'origin',xyz=' '.join(map(str,part['center'])))
+        ET.SubElement(ET.SubElement(col,'geometry'),'box',size=' '.join(map(str,part['size'])))
+    (out/'base-envelope.json').write_text(json.dumps(proxy,indent=2)+'\n')
     xml.write(model, encoding='utf-8', xml_declaration=True)
     return model
 
@@ -216,23 +219,18 @@ class World:
             p.changeConstraint(rack,gearRatio=GEAR_RATIO,maxForce=SYNC_FORCE_N,relativePositionTarget=0.,erp=.55)
             self.racks[rack]=(self.robot,a,self.robot,b,p.JOINT_GEAR)
         p.changeVisualShape(self.robot,self.base_link,rgbaColor=(.76,.82,.89,1))
-        # Cantilever-style workstations; supports are placed forward of the path, not under the carriage.
-        self.tables=[]
-        for id_,x in enumerate((0.,goal_x)):
-            rgba = ([.47,.58,.68,1],[.41,.61,.52,1])[id_]
-            self.tables.append(box([x,PARK_Y,TABLE_Z-.026],[1.32,.32,.052],rgba))
-            for dx in (-.54,.54):
-                box([x+dx,PARK_Y-.204,(TABLE_Z-.052)/2],[.072,.078,TABLE_Z-.052],rgba,collision=False)
-                box([x+dx,PARK_Y-.170,TABLE_Z-.068],[.074,.145,.036],rgba,collision=False)
-            for dx in (-.63,.63):
-                box([x+dx,PARK_Y,TABLE_Z+.00065],[.009,.27,.0013],[.22,.39,.33,1],collision=False)
+        # Table deck, legs, cantilevers and braces share identical visible/collision geometry.
+        self.station_parts=[station_parts(x,PARK_Y,TABLE_Z,rgba) for x,rgba in
+                            zip((0.,goal_x),([.47,.58,.68,1],[.41,.61,.52,1]))]
+        self.tables=[compound_station(parts) for parts in self.station_parts]
         self.floor=box([.90,0.,-.023],[16.,16.,.046],[.23,.30,.39,1])
-        for i in range(-3,8):
-            box([i*.34,0.,-.001],[.009,2.6,.002],[.33,.40,.49,1],collision=False)
+        self.station_init=[]
         self.tote=create_tote(self.start,handle_x)
         for _ in range(96):
             self.drive(np.r_[0.,0.,arms[0].home,arms[1].home,OPEN,OPEN]); p.stepSimulation()
             self.check_constraints()
+            dist,hits,_=station_clearance(self.robot,self.tables)
+            self.station_init.append([*dist,*hits])
         self.initial_object=self.state_object()
         self.settle_contacts=sum(len(p.getContactPoints(self.robot,t)) for t in self.tables)
         self.settle_self_contacts=len(p.getContactPoints(self.robot,self.robot))
@@ -270,18 +268,20 @@ class World:
 
     def step(self,a):
         finger_indices=sum(self.jaws,[])
-        frames=[]
+        frames=[]; clear=[]
         for _ in range(HZ//CONTROL_HZ):
             self.drive(a); p.stepSimulation(); self.check_constraints()
             contacts=p.getContactPoints(self.robot,self.tote)
             f=[sum(c[9] for c in contacts if c[3]==k) for k in finger_indices]
             rogue=sum(c[3] not in finger_indices and c[9]>.25 for c in contacts)
-            table=sum(c[9]>.25 for t in self.tables for c in p.getContactPoints(self.robot,t))
-            self_touch=sum(c[9]>.25 for c in p.getContactPoints(self.robot,self.robot))
+            dist,hits,links=station_clearance(self.robot,self.tables)
+            table=sum(hits)
+            self_touch=sum(c[8]<-.0005 for c in p.getContactPoints(self.robot,self.robot))
+            clear.append([*dist,*hits,*links])
             q=self.qv(finger_indices)[:,0]
             centers=.5*(q[::2]-q[1::2])
             frames.append([*f,rogue,table,self_touch,*centers])
-        return np.asarray(frames)
+        return np.asarray(frames),np.asarray(clear)
 
 
 def capture_rgb():
@@ -318,7 +318,7 @@ def review(path, mode, label):
 
 
 def execute(world, action, phase, *, movie=None, rgb=False, review_label="SCRIPTED EXPERT"):
-    data={k:[] for k in ('base_pre','base_post','arm_pre','gripper_pre','gripper_post','object_pre','object_post','contact_samples','on_table','on_floor')}
+    data={k:[] for k in ('base_pre','base_post','arm_pre','gripper_pre','gripper_post','object_pre','object_post','contact_samples','on_table','on_floor','station_clearance')}
     # Isolate abort paths in the simulated scene; every reset occurs before the first recorded command.
     enc,draw=review(movie,world.mode,review_label) if movie else (None,None)
     frames,indices=[],[]
@@ -327,18 +327,19 @@ def execute(world, action, phase, *, movie=None, rgb=False, review_label="SCRIPT
             if rgb and k%6==0:
                 frames.append(capture_rgb()); indices.append(k)
             base_pre=world.qv(world.base); arm_pre=world.qv(sum(world.arm_ids,[])); grip_pre=world.qv(sum(world.jaws,[])); o0=world.state_object()
-            sample=world.step(a); q1=world.qv(world.base); o1=world.state_object()
+            sample,clear=world.step(a); q1=world.qv(world.base); o1=world.state_object()
             hit=[int(bool(p.getContactPoints(t,world.tote))) for t in world.tables]
             floor=int(bool(p.getContactPoints(world.floor,world.tote)))
             grip_post=world.qv(sum(world.jaws,[]))
-            for n,v in zip(data,(base_pre,q1,arm_pre,grip_pre,grip_post,o0,o1,sample,hit,floor)): data[n].append(v)
+            for n,v in zip(data,(base_pre,q1,arm_pre,grip_pre,grip_post,o0,o1,sample,hit,floor,clear)): data[n].append(v)
             if draw and k%2==0: draw(k,int(ph),q1,o1,sample[-1,:4])
     finally:
         if enc:
             enc.stdin.close()
             if enc.wait()!=0: raise RuntimeError('Video encode failed')
     trace={k:np.asarray(v) for k,v in data.items()}
-    trace |= {'action':action,'phase':phase,'initial_object_xyz':world.start,'target_xyz':world.goal}
+    trace |= {'action':action,'phase':phase,'initial_object_xyz':world.start,'target_xyz':world.goal,
+              'station_initialization_clearance':np.asarray(world.station_init)}
     if rgb:
         trace|={'rgb_external':np.asarray(frames),'rgb_action_index':np.asarray(indices,dtype=np.int32)}
     return trace
@@ -358,6 +359,13 @@ def score(trace, mode, initial):
     stable=jaws_open & (abs(b[:,0,1])<.015) & (xy<.055) & (abs(o[:,2]-SUPPORT_Z)<.018) & (tilt<6.) & (np.linalg.norm(o[:,7:10],axis=1)<.025) &(np.max(c[:,:,:4],axis=(1,2))<.12) & (trace['on_table'][:,t_idx]>0)
     place=bool(np.count_nonzero(stable&final)>=25)
     self_touch=int(np.count_nonzero(c[:,:,6])); nonjaw=int(np.count_nonzero(c[:,:,4])); table_touch=int(np.count_nonzero(c[:,:,5]));
+    clear=trace['station_clearance']; init_clear=trace['station_initialization_clearance']
+    all_dist=np.vstack((clear[:,:,:2].reshape(-1,2),init_clear[:,:2]))
+    near=all_dist.min(axis=0)
+    warm_contacts=int(np.count_nonzero(init_clear[:,2:4]))
+    below_clearance=int(np.count_nonzero(np.any(all_dist<STATION_CLEARANCE_M,axis=1)))
+    penetration=int(np.count_nonzero(np.any(all_dist<0.,axis=1)))
+    collision_pass=below_clearance==0 and table_touch==0 and warm_contacts==0
     jaw_center=float(np.max(abs(c[:,:,7:9]))); tilt_air=float(tilt[airborne].max()) if any(airborne) else None
     fallen=bool(np.any(trace['on_floor']))
     plateau=not fallen and -.005<=delta.min()
@@ -365,7 +373,7 @@ def score(trace, mode, initial):
     unsupported_fraction=np.count_nonzero(carried)/max(1,np.count_nonzero(voyage))
     grip_lift=int(np.count_nonzero(airborne & (np.mean(both,axis=1)>.75)))
     object_carry_x=float(o[ph==5][-1,0]-initial[0]); obj_dist=float(np.ptp(o[:,0]));
-    mechanical=jaw_center<=SYNC_MAX_OFFSET_M and table_touch==0 and self_touch==0 and nonjaw==0 and grip_lift>=40 and tilt_air is not None and tilt_air<10. and plateau
+    mechanical=jaw_center<=SYNC_MAX_OFFSET_M and collision_pass and self_touch==0 and nonjaw==0 and grip_lift>=40 and tilt_air is not None and tilt_air<10. and plateau
     passes=bool(place and mechanical and ((dist<.008) if mode=='fixed-lift' else (dist>=2.5 and object_carry_x>=2.45 and four_transit>=.90 and unsupported_fraction>=.95)))
     return dict(mode=mode,success=passes,final_placement_pass=place,steps=int(len(ph)),
                 max_lift_m=float(delta.max()),lowest_relative_height_m=float(delta.min()),
@@ -375,7 +383,11 @@ def score(trace, mode, initial):
                 touched_floor=fallen,moving_frames=int(np.count_nonzero(voyage)),
                 airborne_tilt_max_deg=tilt_air,final_tilt_deg=float(tilt[-1]),final_goal_xy_error_m=float(xy[-1]),
                 settled_released_target_frames=int(np.count_nonzero(stable&final)),
-                nonfinger_tote_contact_substeps=nonjaw,arm_station_contact_substeps=table_touch,self_contact_substeps=self_touch,
+                nonfinger_tote_contact_substeps=nonjaw,robot_station_contact_substeps=table_touch,self_contact_substeps=self_touch,
+                robot_station_clearance_pass=bool(collision_pass), station_min_clearance_m=near.tolist(),
+                station_query_radius_m=STATION_SCAN_M, station_clearance_threshold_m=STATION_CLEARANCE_M,
+                station_clearance_audited_substeps=len(all_dist), station_negative_distance_substeps=penetration,
+                station_below_clearance_substeps=below_clearance, station_initialization_contact_substeps=warm_contacts,
                 max_gripper_center_offset_mm=1000*jaw_center,rack_check_count=int(c.shape[0]*c.shape[1]),
                 object_attachment_constraints_seen=0,state_writes_during_actions=0)
 
@@ -384,6 +396,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('asset',type=Path)
     ap.add_argument('out',type=Path)
+    ap.add_argument('--cad-zip',type=Path,required=True,help='Original X7 ZIP with raw base CAD for conservative collision envelopes')
     ap.add_argument('--seed',type=int,nargs='+',default=[0]); ap.add_argument('--cases',nargs='+',choices=CASE_NAMES,default=list(CASE_NAMES))
     ap.add_argument('--review',choices=CASE_NAMES)
     ap.add_argument('--rgb',action='store_true')
@@ -392,7 +405,7 @@ def main():
         or len(set(args.cases))!=len(args.cases) or args.review and (args.review not in args.cases or len(args.seed)!=1)):
         ap.error('Explicitly set CUDA_VISIBLE_DEVICES=""; provide unique cases and seeds; review is one seed/case')
     args.out.mkdir(parents=True)
-    asset=make_model(args.asset,args.out/'model'); reports=[]
+    asset=make_model(args.asset,args.out/'model',args.cad_zip); reports=[]
     p.connect(p.DIRECT)
     try:
         for seed in args.seed:
@@ -419,7 +432,9 @@ def main():
             "asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(), "case_reports":reports, "physics_hz":HZ,"control_hz":CONTROL_HZ,
             "contact_schema":["four finger forces A1 A2 B1 B2", "nonfinger-tote contacts","robot-station contacts","self contacts","two jaw center offsets m"],
             "action_schema":["chassis X reference m", "X velocity feedforward m/s", "arm A Joint1-7 targets rad", "arm B Joint8-14 targets rad", "jaw A and B half travel target m"],
-            "move_motors":"force-limited planar joints, no wheels/slip required; Y and yaw held at zero"}
+            "move_motors":"force-limited planar joints, no wheels/slip required; Y and yaw held at zero",
+            "collision_contract":"v2 fully collidable station compounds, CAD/render envelopes; no contact and >=5 mm from each station",
+            "station_clearance_schema":["A signed distance m","B signed distance m","A contact count","B contact count","A nearest robot link index","B nearest robot link index"]}
     (args.out/'report.json').write_text(json.dumps(result,indent=2)+'\n')
     okay=all(r['success'] if r['mode'] in ('fixed-lift','mobile') else not r['final_placement_pass'] for r in reports)
     return 0 if okay else 1
