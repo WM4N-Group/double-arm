@@ -219,10 +219,7 @@ class World:
             p.changeConstraint(rack,gearRatio=GEAR_RATIO,maxForce=SYNC_FORCE_N,relativePositionTarget=0.,erp=.55)
             self.racks[rack]=(self.robot,a,self.robot,b,p.JOINT_GEAR)
         p.changeVisualShape(self.robot,self.base_link,rgbaColor=(.76,.82,.89,1))
-        # Table deck, legs, cantilevers and braces share identical visible/collision geometry.
-        self.station_parts=[station_parts(x,PARK_Y,TABLE_Z,rgba) for x,rgba in
-                            zip((0.,goal_x),([.47,.58,.68,1],[.41,.61,.52,1]))]
-        self.tables=[compound_station(parts) for parts in self.station_parts]
+        self.setup_stations(goal_x)
         self.floor=box([.90,0.,-.023],[16.,16.,.046],[.23,.30,.39,1])
         self.station_init=[]
         self.tote=create_tote(self.start,handle_x)
@@ -235,6 +232,12 @@ class World:
         self.settle_contacts=sum(len(p.getContactPoints(self.robot,t)) for t in self.tables)
         self.settle_self_contacts=len(p.getContactPoints(self.robot,self.robot))
         self.state_writes_during_actions=0
+
+    def setup_stations(self, goal_x):
+        # Table deck, legs, cantilevers and braces share identical visible/collision geometry.
+        self.station_parts=[station_parts(x,PARK_Y,TABLE_Z,rgba) for x,rgba in
+                            zip((0.,goal_x),([.47,.58,.68,1],[.41,.61,.52,1]))]
+        self.tables=[compound_station(parts) for parts in self.station_parts]
 
     def check_constraints(self):
         current={p.getConstraintUniqueId(i) for i in range(p.getNumConstraints())}
@@ -317,15 +320,15 @@ def review(path, mode, label):
     return enc,draw
 
 
-def execute(world, action, phase, *, movie=None, rgb=False, review_label="SCRIPTED EXPERT"):
+def execute(world, action, phase, *, movie=None, rgb=False, review_label="SCRIPTED EXPERT", reviewer=review, camera=capture_rgb):
     data={k:[] for k in ('base_pre','base_post','arm_pre','gripper_pre','gripper_post','object_pre','object_post','contact_samples','on_table','on_floor','station_clearance')}
     # Isolate abort paths in the simulated scene; every reset occurs before the first recorded command.
-    enc,draw=review(movie,world.mode,review_label) if movie else (None,None)
+    enc,draw=reviewer(movie,world.mode,review_label) if movie else (None,None)
     frames,indices=[],[]
     try:
         for k,(a,ph) in enumerate(zip(action,phase)):
             if rgb and k%6==0:
-                frames.append(capture_rgb()); indices.append(k)
+                frames.append(camera()); indices.append(k)
             base_pre=world.qv(world.base); arm_pre=world.qv(sum(world.arm_ids,[])); grip_pre=world.qv(sum(world.jaws,[])); o0=world.state_object()
             sample,clear=world.step(a); q1=world.qv(world.base); o1=world.state_object()
             hit=[int(bool(p.getContactPoints(t,world.tote))) for t in world.tables]

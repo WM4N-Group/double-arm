@@ -87,14 +87,15 @@ def station_parts(x, y, table_top, rgba):
     return parts
 
 
-def compound_station(parts):
+def compound_station(parts, *, position=(0.,0.,0.), yaw=0.):
     shapes=[p.GEOM_BOX]*len(parts)
     half=(np.asarray([row[2] for row in parts],dtype=float)/2).tolist()
     centers=[row[1] for row in parts]
     col=p.createCollisionShapeArray(shapeTypes=shapes,halfExtents=half,collisionFramePositions=centers)
     vis=p.createVisualShapeArray(shapeTypes=shapes,halfExtents=half,visualFramePositions=centers,
                                 rgbaColors=[row[3] for row in parts])
-    return p.createMultiBody(baseMass=0,baseCollisionShapeIndex=col,baseVisualShapeIndex=vis)
+    return p.createMultiBody(baseMass=0,baseCollisionShapeIndex=col,baseVisualShapeIndex=vis,
+                             basePosition=position,baseOrientation=p.getQuaternionFromEuler([0.,0.,yaw]))
 
 
 def station_clearance(robot, stations):
