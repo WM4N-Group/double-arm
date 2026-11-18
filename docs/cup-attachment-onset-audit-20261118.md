@@ -44,3 +44,11 @@ B assisted 在 685–688 步的左手杯接触 link 数为 `0,1,2,2`，两次较
 在服务器只读核对 B 的实际 assisted native 动作与 review 的原 trace SHA（`89276a1f5ebc819dbd30f4b361b796136c78f84ce4fda5be76f745564f38dbd5`）。全部 1694×21 FP32 动作等于已执行的 bounded targets，未重新裁剪。两个条件拟共享第 `[0,1200)` 步，SHA `fe618b0ec85f255cea4878e551d11ca642be12d8791c404c2a663de43ca37da5`；原闭环首个杯抓取报告为 688，前缀覆盖该窗口及之后约 17 秒。源训练 demo0 指纹、空手 frame0 序列化状态、原21维动作范围、20 次刷新与原摩擦也已锁定；源码证据中的 688 仍是抓取报告，不是精确约束创建时刻。
 
 远程输入计划：`/mnt/yuanyue/double-arm/runs/B-assisted-tape-pair-preflight-20261118-112520/plan.json`，SHA `dcdba8950dddffb3c44d1b7c436ed5756080e4c20b4884740e2ea263f3c5805e`，状态 `INPUT_PREFLIGHT_PASSED_NOT_LAUNCHED`。两卡原采集继续，未启动 GPU、训练或推理。不要复用会暂停旧控制器的历史 `run_grasp_audit.sh`；成对实验的运行程序须按现行 GPU UUID / lock、物理无辅助与两分支初始化一致性要求单独审查。1200 步结果只回答接触、吸附和早期持杯差异，不是完整放置验收。
+
+### 12:24 跨分片专家物理回放小样本已预先固定，未跑仿真
+
+为了回答「示范在关闭吸附后是否还能抓稳并放下」，使用 11:24 跨池 QA 的 **255 条、445007 帧** immutable snapshot（审计 SHA `f1c72ee74ff2941f94dfa732d421f3bcfc0f4a2d3d530fd537441036c6e71908`）预先固定 8 条专家轨迹、每个分片最多 1 条。脚本 `/home/yuanyue/double-arm/scripts/plan_expert_physical_pilot.py` 以固定命名空间 + audit SHA 分别排序分片和 episode 指纹；排序不依赖源 JSON 内顺序、视频外观、接触结果，不事后替换。两项单元测试本地与服务器 CPU 均通过。
+
+冻结文件：`/mnt/yuanyue/double-arm/runs/expert-physical-pilot-20261118-122448/plan.json`（SHA `ea90461c1c9d7d6193eda55957e6837779146dde9df7698434cada4e5c6ed96a`）。8 个 seed / episode：10007/demo_9、10005/demo_24、10001/demo_12、10006/demo_10、20002/demo_2、10002/demo_17、10003/demo_3、20001/demo_12。该小面板是**跨分片可行性诊断**，不是按单条全池抽样的总体估计、场景多样性证明、训练划分或 π₀ heldout；后续新增 shard 不更改本轮名单。
+
+下一可用算力窗口依次做固定 B 动作成对对照和跨 shard 专家测试；物理分支从各自空手 frame0 恢复一次，20 次刷新，按原 native 动作执行并审计实际无辅助。报告接触、抬升、运输保留、松手、松手后杯在水槽；初始化错误 / 中断与执行完整但任务失败分列，不以“杯在水槽”替代释放，不将专家回放称为 π₀。在两卡现有采集工作流期间没有启动这两项仿真。
