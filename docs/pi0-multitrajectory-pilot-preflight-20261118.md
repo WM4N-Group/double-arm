@@ -20,3 +20,11 @@
 脚本 `/home/yuanyue/double-arm/scripts/freeze_pi0_multitrajectory_pilot.py`，测试覆盖带排除项的可复现分割与不可行时拒绝跨分片补足。
 
 仍以 GPU1 现有辅助数据采集自然退出后的 **physical-only** 8 条专家回放为首个物理诊断；该队列 239122 未启动 GPU，和两卡目前运行无冲突。下一步另行确定动作表示、清洗和常量轴处理并核验 effective batch，最终只用物理留出闭环验收新策略；225/25 不冒称论文正式的 900/100。
+
+## 16:25 源变换往返实查；新原始数据增加但候选不变
+
+服务器 CPU 对固定的 **225 TRAIN 回合全部 393802 帧**，重验动作+初始 proprio 指纹，调用固定 OpenPI `openpi-215abfb/src/openpi/transforms.py` 的真实 `Normalize(use_quantiles=True) → PadStatesAndActions(32) → Unnormalize(use_quantiles=True)`。21 个有效维往返最大绝对误差 state/actions 均 **3.58e-7**（混合原单位），11 个 pad 维为零，验证集读取 0 帧。OpenPI 分位数变换**不裁剪**超出区间的尾部；这次没有额外 clipping。右爪原命令 +1 正向精确归为 -1、训练样本逆变换精确回 +1；对模拟模型输出 `[-10,-1,0,1,10]`，逆变换约落在 `[0.9999955,1.0000055]`，源码使用 epsilon，**不是硬锁右爪**。均值/标准差占位只供此 quantile smoke（该分支不读取），未生成运行时资产；动作表示与实训仍未确定。
+
+- 远程 `$P/pinned-openpi-native-quantile-cpu-smoke.json`（`P=/mnt/yuanyue/double-arm/runs/pi0-multitrajectory-pilot-manifest-20261118-154313`），SHA `d6447711d132a6ae13b8d0b9bacf0e94ffe1d4b3e658fbfa5b2f436508e26434`。
+- 新完成 GPU0 seed10008、GPU1 seed20004 已进入正式跨池 QA：**330 条 / 574636 帧**，重复与旧轨迹重合均为 0，未清洗、未改冻结 225/25 及 8 条探针。远程 QA `runs/official-raw-pool-audit-20261118-162523/audit/report.json`，SHA `6878475179265259e4e6dac4aaac6660f38b1a5aadd080243f3bf14a5870525d`。
+- 两卡现有生成继续，GPU1 未释放，physical-only 专家队列未启动模拟器；没有新的抓取或训练结果。
