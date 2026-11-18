@@ -170,7 +170,8 @@ def review_turn(path, mode, label):
         image=Image.fromarray(im); d=ImageDraw.Draw(image)
         d.rounded_rectangle((18,15,662,94),10,fill='#142235')
         d.text((32,23),'X7  /  BIMANUAL TURN & DOCK',font=title,fill='white')
-        d.text((33,59),'SCRIPTED SOURCE DEMO   /   CONTACT ONLY   /   PLANAR BASE PROXY',font=font,fill='#aec4dd')
+        banner='SCRIPTED SOURCE DEMO' if label=='SCRIPTED EXPERT' else label
+        d.text((33,59),f'{banner}   /   CONTACT ONLY   /   PLANAR BASE PROXY',font=font,fill='#aec4dd')
         d.rectangle((0,h-71,w,h),fill='#142235')
         d.text((22,h-59),f'{(k+1)/CONTROL_HZ:05.1f}s   {FRAME_NAMES[ph].upper()}   BASE XY {base[0,0]:.2f}, {base[1,0]:.2f} m   YAW {np.degrees(base[2,0]):+.1f}°',font=font,fill='white')
         d.text((22,h-32),f'Finger forces (N)   A {force[0]:.1f}/{force[1]:.1f}    B {force[2]:.1f}/{force[3]:.1f}',font=font,fill='#aec4dd')
