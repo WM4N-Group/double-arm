@@ -118,7 +118,7 @@ def inputs(plan):
     return actions, init, proprio, reference, meta
 
 
-def simulate(c, mode, parent, gpu):
+def simulate(c, mode, parent, gpu, *, load_expert=None):
     if os.getppid() != parent or read(c/'status.json')['controller_pid'] != parent or os.environ.get('CUDA_VISIBLE_DEVICES') != gpu:
         raise ValueError('Need authorized parent plus single pinned GPU1 UUID')
     if any(os.environ.get(k) != 'YES' for k in ('ACCEPT_NVIDIA_EULA','ACCEPT_BEHAVIOR_DATASET_TERMS')):
@@ -137,10 +137,17 @@ def simulate(c, mode, parent, gpu):
     from physical_grasp_observation import ARMS, snapshot_no_assistance
     from pi0_base_targets import root_rotation_xy_and_yaw
 
-    frozen = (c/'plan.json').read_bytes()
-    if digest(frozen) != PLAN_SHA:
-        raise ValueError('Frozen plan hash mismatch')
-    actions, init, source_proprio, ref_images, meta = inputs(json.loads(frozen))
+    if load_expert is not None:
+        if mode != 'physical':
+            raise ValueError('Expert pilot accepts physical mode only')
+        actions, init, source_proprio, ref_images, meta = load_expert()
+        label = 'EXPERT TAPE'
+    else:
+        frozen = (c/'plan.json').read_bytes()
+        if digest(frozen) != PLAN_SHA:
+            raise ValueError('Frozen plan hash mismatch')
+        actions, init, source_proprio, ref_images, meta = inputs(json.loads(frozen))
+        label = 'SAME B ACTION TAPE'
     torch.set_num_threads(4)
     torch.set_num_interop_threads(1)
     out = c/mode
@@ -148,7 +155,8 @@ def simulate(c, mode, parent, gpu):
     r = {'grasping_mode': None, 'requested_mode': mode, 'completed_actions': 0, 'initial_state_load_count': 0,
          'reset_physics_steps': 0, 'explicit_object_pose_writes': 0, 'policy_calls': 0, 'planner_enabled': False,
          'recorded_boundary_fields': list(BOUNDARY_FIELDS), 'aborted': True, 'stage': 'initializing',
-         'kind': 'recorded_same_B_commands_not_live_policy', 'learned_policy_task_success': False}
+         'kind': 'expert_tape_physical_not_live_policy' if load_expert else 'recorded_same_B_commands_not_live_policy',
+         'learned_policy_task_success': False}
     def save(**updates):
         r.update(updates)
         write(out/'result.json', r)
@@ -158,6 +166,7 @@ def simulate(c, mode, parent, gpu):
 
     source_py = ROOT/'src/MoMaGen/BEHAVIOR-1K/OmniGibson/omnigibson/robots/manipulation_robot.py'
     boundaries, executed, cups, eefs, contacts = [], [], [], [], []
+    grasps, inside, widths = [], [], []
     first = {}
     audit = writer = None
     error = None
@@ -237,13 +246,17 @@ def simulate(c, mode, parent, gpu):
             if errors or audit.events:
                 raise ValueError(f'Replay telemetry error or explicit object pose write: {errors}')
             cups.append(pose(cup)); eefs.append(pose(robot.eef_links['left'])); contacts.append(int(counts[0]))
+            if load_expert is not None:
+                grasps.append(int(robot.is_grasping(arm='left', candidate_obj=cup)) == 1)
+                inside.append(bool(env.is_success()['task']))
+                widths.append(float(array(obs['prop_state'])[19]))
             if step % 2 == 0:
                 frame = Image.new('RGB',(960,536),'black')
                 external = rgb_image(env.env._external_sensors['external_sensor2'].get_obs()[0]['rgb'])
                 frame.paste(Image.fromarray(external).resize((480,480)),(0,28))
                 frame.paste(Image.fromarray(rgb_image(obs[cameras['head_image']])).resize((480,480)),(480,28))
                 text = ImageDraw.Draw(frame)
-                text.text((5,5), f'SAME B ACTION TAPE | {mode.upper()} | step {step}', fill='white')
+                text.text((5,5), f'{label} | {mode.upper()} | step {step}', fill='white')
                 text.text((5,515),'OPEN LOOP COMMAND REPLAY - NOT LIVE PI0 OR TASK ACCEPTANCE',fill='yellow')
                 writer.append_data(np.asarray(frame))
             if step % 100 == 0:
@@ -265,7 +278,9 @@ def simulate(c, mode, parent, gpu):
                            post_step_cup_poses=np.asarray(cups).reshape(-1,7),
                            post_step_left_eef_poses=np.asarray(eefs).reshape(-1,7),
                            post_step_left_cup_contacts=np.asarray(contacts,np.int32),
-                           grasp_boundaries=np.asarray(boundaries,np.int8).reshape(-1,8))
+                           grasp_boundaries=np.asarray(boundaries,np.int8).reshape(-1,8),
+                           post_step_cup_grasp_flags=np.asarray(grasps,bool), inside_goal_flags=np.asarray(inside,bool),
+                           post_step_left_gripper_width=np.asarray(widths,np.float32))
         og.shutdown()
     if error:
         raise error

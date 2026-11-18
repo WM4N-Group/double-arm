@@ -70,3 +70,9 @@ B assisted 在 685–688 步的左手杯接触 link 数为 `0,1,2,2`，两次较
 `/home/yuanyue/double-arm/scripts/verify_expert_physical_pilot_inputs.py` 从冻结 audit 重建相同的 8 条名单；核对八个正式分片的 generation verdict / manifest SHA、数据集路径、D0/30Hz/assisted 元数据、21 维 FP32 原动作和帧对齐、动作与初始 proprio 指纹、每个源 frame0 的序列化状态与三路 RGB 的单独 SHA。实际共 **13,567 条动作**，首帧均记录双手未抓取，全部源状态宽度 3082；这些是原始 HDF5 证据，不证明实际重置无约束或任何物理结果。没有裁剪专家动作、套用旧 16 条训练的经验上下界、重抽名单或输出训练集。以后运行须复查 SHA 并校验实际加载布局、真实观测和两手无辅助，不能把源文件标志当仿真证据。
 
 远程报告 `/mnt/yuanyue/double-arm/runs/expert-physical-pilot-inputs-20261118-152505/report.json`（SHA `26758174a7dea626ca74dcba4df29f3c3b3d80db1395e53454d32e4a27825a2d`）。没有启动新的仿真或抢占两卡运行中的采集；当前没有新策略或物理回放结果。
+
+### 15:35 用户要求关闭辅助：改为 physical-only 专家回放，已排队
+
+优先运行冻结的 8 条跨分片专家原生动作，**不启动此前计划中的 assisted B 对照分支**。远端 CPU 队列 `/mnt/yuanyue/double-arm/runs/expert-physical-only-20261118-153535`（PID 239122）已启动，stage `waiting_for_existing_GPU1_generation_to_finish`，`gpu_replay_launched=false`。GPU1 aux100 继续现有官方 assisted 原始数据生成；GPU0 主采集不动；已有数据和标签不修改。队列只在该整项成功退出、GPU1 实际空闲且取得 UUID 锁后自动运行，并不会信号暂停采集；父进程状态、指针或占用异常则拒绝接管。32h CPU 等待与每例 40min 是防挂起边界，不是计算授权时限。
+
+8 例各用新模拟器，从原版序列化布局恢复空手 frame0 后、**在任何诊断动作前**切换 `physical`。确认 Python 和 USD 无辅助约束，复查原命令 / 初始状态 / RGB / 环境配置 SHA。一次 state load，20 次刷新，原条件摩擦，直接按各条原命令执行，不裁剪、不另训模型。完整回放需要实际执行字节与原命令一致且 `21+2N` 边界均无辅助。验收另要求持杯抬升、实际关节开度增加、保持开手且无杯接触和 inside 连续 30 帧；错误、未抓到和未验证稳定释放分别记录。视频标注专家动作回放，不是 π₀ 成功。服务器 CPU 预检重新核验八条实际输入，释放判定和松手评分测试通过；本轮没有实际运行 physical rollout。
