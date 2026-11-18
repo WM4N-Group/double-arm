@@ -18,3 +18,7 @@ CUDA_VISIBLE_DEVICES='' python scripts/verify_portable_expert_inputs.py \
 ```
 
 校验固定八条名单、原始 CPU preflight SHA、每条 action/frame0/RGB 数组字节和环境 JSON。目前目的机 CPU 校验 **8/8、13567 动作**通过；未导入 Isaac、未启动 GPU 工作、未产生新回放结果。便于后续 simulator worker 直接使用 `load_case()`，无需伪造旧完整 HDF5。移植路由配置信息、实际 staging 路径及传输状态仅保存在主机本地或服务器，不提交媒体、秘钥、资产与数据。
+
+## 冲突与切换前核查
+
+`audit_momagen_migration_cutover.py --root … --staging …` 只读列出待落地的六个命名空间叶目录、是否与目的机现有文件冲突，以及 runtime/assets/compact 三个独立状态。根下已有的 `code` 属于并行 X7 工作流，**不是合并或覆盖目标**；MoMaGen 的代码保持独立。脚本仅查 `data/omnigibson.key` 是否已由有权限的用户以私有权限配置，不读取、不复制、不出示它。工具没有任何启动、切换、拷密钥或写 `latest` 指针的路径。目的机运行一次，现有六处预定落盘路径无冲突，但 runtime / scene 数据仍在传输，且新机关联的受限资产访问尚未配置；未激活或占卡。
