@@ -61,10 +61,16 @@ def summarize_cells(fractions, valid):
 class CoverageWorld(RangeWorld):
     def __init__(self,asset,homes,l,obs,arm,span,name):
         self.coverage_case=name
-        self.curtain=rear_curtain(json.loads((asset.parent/'base-envelope.json').read_text()))
+        self.curtain=self.make_curtain(json.loads((asset.parent/'base-envelope.json').read_text()))
         self.coverage=[]; self.mask_start=None; self.mask_stop=None
         super().__init__(asset,homes,l,obs,arm,span,
                          'rear-narrow-blind' if name in ('narrow','upper-low-chassis') else 'overtravel-clear')
+
+    def make_curtain(self,cad):
+        return rear_curtain(cad)
+
+    def rear_fractions(self,a,b):
+        return np.array([r[2] for r in p.rayTestBatch(a.tolist(),b.tolist(),numThreads=1)])
 
     def spawn_rear(self,k):
         if self.coverage_case=='narrow':
@@ -94,7 +100,7 @@ class CoverageWorld(RangeWorld):
         a,b=transform_mounts(self.mounts[0],q,-1)
         front=gaps_from_fractions([r[2] for r in p.rayTestBatch(a.tolist(),b.tolist())]).min()
         a,b=transform_mounts(self.curtain,q,1)
-        fraction=np.array([r[2] for r in p.rayTestBatch(a.tolist(),b.tolist(),numThreads=1)])
+        fraction=self.rear_fractions(a,b)
         valid=np.ones(len(fraction),dtype=bool)
         if self.mask_start is not None and self.mask_start<=k<self.mask_start+80:
             valid &= abs(self.curtain[:,0]-.035)>.012
