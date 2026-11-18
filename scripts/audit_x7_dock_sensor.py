@@ -120,6 +120,21 @@ class SampledWorld(GuardWorld):
     def sensor_sample_valid(self,k):
         return not self.occlude_from<=k<self.occlude_to
 
+    def acquire_packet(self,k,truth_rear):
+        n=np.sin(.77*(k//PERIOD)+np.array([.43,1.55,2.24]))*WAVE+BIAS
+        if self.config.get('linkwise'):
+            raw=np.minimum(np.stack([self.measure_links(z) for z in [*self.tables,self.obstacle]])+n[:,None],GUARD_SCAN_M)
+        else:
+            raw=np.minimum(np.array([*(measure(self.robot,z) for z in self.tables),truth_rear])+n,GUARD_SCAN_M)
+        return raw,self.link_poses()
+
+    def lower_from_packet(self,raw,sampled_state,age):
+        if self.config.get('linkwise'):
+            observed=raw.min(axis=1);low,move=correct_linkwise(raw,sampled_state,self.link_poses(),self.radii)
+        else:
+            observed=raw;low,move=correct_sample(raw,sampled_state,self.link_poses(),self.radii,self.config.get('raw',False))
+        return observed,self.rear_bound(low,age),move
+
     def drive(self,a):
         if not self.armed:return PickupWorld.drive(self,a)
         k=len(self.applied); self.begin_sensor_substep(k); active=self.tick>=self.arm_stage or self.guard.state!='pass'; observed=None; low=None
@@ -129,22 +144,14 @@ class SampledWorld(GuardWorld):
         if self.tick>=self.arm_stage-10:
             if k%PERIOD==0:
                 valid=self.sensor_sample_valid(k)
-                n=np.sin(0.77*(k//PERIOD)+np.array([.43,1.55,2.24]))*WAVE+BIAS
-                if self.config.get("linkwise"):
-                    raw=np.minimum(np.stack([self.measure_links(z) for z in [*self.tables,self.obstacle]])+n[:,None],GUARD_SCAN_M)
-                else:
-                    raw=np.minimum(np.array([*(measure(self.robot,z) for z in self.tables),truth_rear])+n,GUARD_SCAN_M)
-                self.packets.append((k,raw if valid else None,self.link_poses()))
+                raw,snapshot=self.acquire_packet(k,truth_rear)
+                self.packets.append((k,raw if valid else None,snapshot))
             while self.packets and k-self.packets[0][0]>=LAG:
                 self.delivered=self.packets.popleft()
             if self.delivered is not None:
                 sample_k,raw,sampled_links=self.delivered;age=k-sample_k
                 if raw is not None and age<=MAX_AGE:
-                    if self.config.get('linkwise'):
-                        observed=raw.min(axis=1);low,move=correct_linkwise(raw,sampled_links,self.link_poses(),self.radii)
-                    else:
-                        observed=raw;low,move=correct_sample(raw,sampled_links,self.link_poses(),self.radii,self.config.get('raw',False))
-                    low=self.rear_bound(low,age)
+                    observed,low,move=self.lower_from_packet(raw,sampled_links,age)
             if active:
                 g=self.guard; before=g.state;q=self.qv(self.base)
                 # Enforce a rear reading definitively acquired after latching

@@ -15,7 +15,7 @@ import numpy as np
 import pybullet as p
 
 from audit_x7_anchor_tolerance import CASES, FROZEN_CHECKPOINT, LAYOUTS, perceived_pose
-from audit_x7_dock_sensor import MAX_AGE, SampledWorld, correct_linkwise, measure
+from audit_x7_dock_sensor import MAX_AGE, SampledWorld, measure
 from run_x7_mobile_bimanual import ArmIK, GRIP_Z, HZ, PARK_Y, execute, smooth
 from run_x7_turning_carry import HANDLE_HALF_SPAN, dock_pose, r2, review_turn
 from test_x7_dock_guard import DockGuard, GUARD_SCAN_M, RETREAT_M, STATION_CLEARANCE_M, clearance_trigger, guard_metrics
@@ -105,7 +105,7 @@ class RetreatWorld(SampledWorld):
             t,raw,old=self.delivered; age=len(self.applied)-t
             if raw is not None:
                 if age<=MAX_AGE:
-                    low,_=correct_linkwise(raw,old,self.link_poses(),self.radii);low=correct_moving_rear(low,age)
+                    _,low,_=self.lower_from_packet(raw,old,age)
                     q=self.qv(self.base); v=max(0.,float(q[:2,1]@r2(self.guard.angle)[:,1]))
                     brake=STATION_CLEARANCE_M+.0012+(v+REAR_OBSTACLE_SPEED_BOUND)*.035+v*v/(2*.60)
                     if low[2]<=brake:
