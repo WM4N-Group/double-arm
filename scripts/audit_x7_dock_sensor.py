@@ -110,15 +110,25 @@ class SampledWorld(GuardWorld):
         self.birth={'substep':k,'world_center_m':[*xy,.27],'half_extent_m':half,'yaw_rad':theta,
                     'true_initial_clearance_m':measure(self.robot,self.obstacle)}
 
+    def begin_sensor_substep(self,k):
+        """Optional physical fixture driver, separate from sensing and control."""
+
+    def rear_bound(self,lower,age):
+        """Optionally account for independently specified obstacle motion bounds."""
+        return lower
+
+    def sensor_sample_valid(self,k):
+        return not self.occlude_from<=k<self.occlude_to
+
     def drive(self,a):
         if not self.armed:return PickupWorld.drive(self,a)
-        k=len(self.applied); active=self.tick>=self.arm_stage or self.guard.state!='pass'; observed=None; low=None
+        k=len(self.applied); self.begin_sensor_substep(k); active=self.tick>=self.arm_stage or self.guard.state!='pass'; observed=None; low=None
         age=-1;truth_rear=GUARD_SCAN_M;rear_hits=0; trigger=-1.; move=-1.; sample_k=-1; e=a
         if self.obstacle is not None:
             truth_rear=measure(self.robot,self.obstacle);rear_hits=len(p.getContactPoints(self.robot,self.obstacle))
         if self.tick>=self.arm_stage-10:
             if k%PERIOD==0:
-                valid=not self.occlude_from<=k<self.occlude_to
+                valid=self.sensor_sample_valid(k)
                 n=np.sin(0.77*(k//PERIOD)+np.array([.43,1.55,2.24]))*WAVE+BIAS
                 if self.config.get("linkwise"):
                     raw=np.minimum(np.stack([self.measure_links(z) for z in [*self.tables,self.obstacle]])+n[:,None],GUARD_SCAN_M)
@@ -134,6 +144,7 @@ class SampledWorld(GuardWorld):
                         observed=raw.min(axis=1);low,move=correct_linkwise(raw,sampled_links,self.link_poses(),self.radii)
                     else:
                         observed=raw;low,move=correct_sample(raw,sampled_links,self.link_poses(),self.radii,self.config.get('raw',False))
+                    low=self.rear_bound(low,age)
             if active:
                 g=self.guard; before=g.state;q=self.qv(self.base)
                 # Enforce a rear reading definitively acquired after latching
