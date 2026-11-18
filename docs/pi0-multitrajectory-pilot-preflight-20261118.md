@@ -28,3 +28,9 @@
 - 远程 `$P/pinned-openpi-native-quantile-cpu-smoke.json`（`P=/mnt/yuanyue/double-arm/runs/pi0-multitrajectory-pilot-manifest-20261118-154313`），SHA `d6447711d132a6ae13b8d0b9bacf0e94ffe1d4b3e658fbfa5b2f436508e26434`。
 - 新完成 GPU0 seed10008、GPU1 seed20004 已进入正式跨池 QA：**330 条 / 574636 帧**，重复与旧轨迹重合均为 0，未清洗、未改冻结 225/25 及 8 条探针。远程 QA `runs/official-raw-pool-audit-20261118-162523/audit/report.json`，SHA `6878475179265259e4e6dac4aaac6660f38b1a5aadd080243f3bf14a5870525d`。
 - 两卡现有生成继续，GPU1 未释放，physical-only 专家队列未启动模拟器；没有新的抓取或训练结果。
+
+## 17:25 相对关节候选的 50 步窗口边界 CPU 审计
+
+脚本 `scripts/audit_multitrajectory_window_labels.py` 对同一份冻结 225 TRAIN / 393802 anchor 帧重验指纹；未读验证、不修改冻结候选。在既有诊断的“future action index 不越过本 episode，越界重复末步；16 个关节目标减同一当前 anchor proprio，底盘和两爪不变”定义下，全部 50 步索引计数 **19,690,100**，其中 **275,625** 个末步重复（约 1.40%，不是额外真实观测）。在 lag 0/9/19/49 对所有 anchor 实测编解码，逐 episode 的边界样本还核对既有编码函数；最大关节往返误差 **2.38e-7 rad**。报告含这些 lag 的相对关节分位数，仅用于比较候选编码；不能拿原生分位数喂相对标签，也不能把逐 lag 分位数简单平均成运行时 norm。无作者真实动作编码、实际数据加载器配方或 checkpoint 验收结论。
+
+`/mnt/yuanyue/double-arm/runs/pi0-multitrajectory-pilot-manifest-20261118-154313/window-labels-cpu-audit.json`，SHA `d8d03321a1aa87490ceac64ea6205d1dc996b16165c63bbe5ecd2a85e5d33a99`。服务器 2 项窗口测试通过；未占 GPU、未训练。两卡采集继续，physical-only 专家回放仍在等待 GPU1。
