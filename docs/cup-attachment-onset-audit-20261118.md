@@ -38,3 +38,9 @@ B assisted 在 685–688 步的左手杯接触 link 数为 `0,1,2,2`，两次较
 - 量化脚本：`/home/yuanyue/double-arm/scripts/audit_cup_attachment_onset.py`。远程原报告 `/mnt/yuanyue/double-arm/runs/cup-attachment-onset-20261118-111847/report.json`，SHA256 `454c0b3b33caafcd2a11d701fcb6afb7ddd9ad88730954a6169c5987153fedca`。
 - 抓取前后同类型头部视角关键帧对比：第一行来自随机样本 #1 的原 HDF5 RGB，其余来自对应完整视频头部视角，不插帧；本地 `/home/yuanyue/double-arm/outputs/demo-review/cup-attachment-onset-20261118/grasp-onset-contact-sheet.jpg`，SHA256 `872ba4becc5de83424e098c19afaa7c35050bb1681532e629d88353be0686683`。本地原报告与接触图均核验 SHA，已目视检查。
 - 新的 2 项数值测试通过远程 CPU 验证；本地全套 203 项、153 通过、50 依赖跳过。代码不依赖新的模拟器 / GPU 配置。
+
+### 11:25 CPU 输入预检完成；成对仿真尚未启动
+
+在服务器只读核对 B 的实际 assisted native 动作与 review 的原 trace SHA（`89276a1f5ebc819dbd30f4b361b796136c78f84ce4fda5be76f745564f38dbd5`）。全部 1694×21 FP32 动作等于已执行的 bounded targets，未重新裁剪。两个条件拟共享第 `[0,1200)` 步，SHA `fe618b0ec85f255cea4878e551d11ca642be12d8791c404c2a663de43ca37da5`；原闭环首个杯抓取报告为 688，前缀覆盖该窗口及之后约 17 秒。源训练 demo0 指纹、空手 frame0 序列化状态、原21维动作范围、20 次刷新与原摩擦也已锁定；源码证据中的 688 仍是抓取报告，不是精确约束创建时刻。
+
+远程输入计划：`/mnt/yuanyue/double-arm/runs/B-assisted-tape-pair-preflight-20261118-112520/plan.json`，SHA `dcdba8950dddffb3c44d1b7c436ed5756080e4c20b4884740e2ea263f3c5805e`，状态 `INPUT_PREFLIGHT_PASSED_NOT_LAUNCHED`。两卡原采集继续，未启动 GPU、训练或推理。不要复用会暂停旧控制器的历史 `run_grasp_audit.sh`；成对实验的运行程序须按现行 GPU UUID / lock、物理无辅助与两分支初始化一致性要求单独审查。1200 步结果只回答接触、吸附和早期持杯差异，不是完整放置验收。
