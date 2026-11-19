@@ -105,10 +105,10 @@ class HandleBudgetWorld(PanelWorld):
                                      'rear_lower_bound_m':float(gap),'required_m':entry_margin()})
 
 
-def run_case(m,asset,arms,name,out):
+def run_case(m,asset,arms,name,out,*,world_type=HandleBudgetWorld):
     base,handles,budget=PANEL[name];scene,bias,overshoot,fixture=MIX[base]; true=SCENES[scene];obs=pose_for_control(true,bias,overshoot)
     u,ph,meta=make_action(m,asset,arms,obs);n=meta['fitted_phase_durations'];homes=[SimpleNamespace(home=u[0,6+7*i:13+7*i]) for i in range(2)]
-    w=HandleBudgetWorld(asset,homes,true,obs,sum(n[:8]),n[8],fixture,name,handles,budget)
+    w=world_type(asset,homes,true,obs,sum(n[:8]),n[8],fixture,name,handles,budget)
     t=execute(w,u,ph);w.audit_held(len(w.applied));r=guard_metrics(w,t,true)
     box=np.asarray(w.audit);robot=np.asarray(w.obstacle_trace);motion=np.asarray(w.rear_position); sensor=np.asarray(w.sensor)
     travel=float(np.ptp(motion[:,1]));peak=float(np.max(abs(motion[:,2])))
