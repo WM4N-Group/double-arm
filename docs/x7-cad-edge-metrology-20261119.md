@@ -9,3 +9,5 @@
 暂不解除原布局的禁退。下一步若将横向覆盖接入动态试验，需要先明确最低覆盖尺寸与缺帧行为，再在两侧边缘、不同高度和独立运动障碍上验证；不以 CAD 回波匹配或稀疏网格无新回波授权运动。默认退离行为和 5 mm 几何评分门槛保持不变。
 
 远端证据：`/mnt/yuanyue/double-arm/runs/x7-cad-edge-metrology-v3-20261119-123207/`，`metrology.json` SHA-256 `58346f07e7ab559e3e6de71d8030053ab1d0a152227eade0a0ff278ae31e2ae9`；`qa-edge-metrology.json` SHA-256 `770ce54ae5869c5818ad407fdfafb9e543ee493957db8ceac602b026182e2e35`。3 项新增几何检查和 5 项原退离契约检查通过。首版局部坐标往返没有复现原 320 mm 回波，负例保留在 `/mnt/yuanyue/double-arm/runs/x7-cad-edge-metrology-20261119-122956/`；不要和精确世界坐标回放合并。没有启用旧机、GPU 或 +34° 留出。
+
+动态横向覆盖试验以及制动阶段净空失败见 `x7-dense-edge-witness-20261119.md`。
