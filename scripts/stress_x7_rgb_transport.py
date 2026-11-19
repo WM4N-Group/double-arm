@@ -56,15 +56,18 @@ class ChallengeWorld(LiveTransport):
         self.challenge_params=params;self.effects=[];self.physical_k=None;self.drive_hits=0
         self.challenge_yaw=np.radians(layout['goal'][2]);super().__init__(*args)
 
+    def applied_disturbance(self,k):
+        return disturbance(self.challenge_params,k,self.hi,self.challenge_yaw)
+
     def policy_base_observation(self):
         q=super().policy_base_observation().copy()
-        b,_,_=disturbance(self.challenge_params,self.physical_k,self.hi,self.challenge_yaw)
+        b,_,_=self.applied_disturbance(self.physical_k)
         q[:,0]+=b
         return q
 
     def step(self,a):
         self.physical_k=len(self.applied)
-        bias,force,fraction=disturbance(self.challenge_params,self.physical_k,self.hi,self.challenge_yaw)
+        bias,force,fraction=self.applied_disturbance(self.physical_k)
         self.effects.append([self.physical_k,*bias,*force,fraction]);self.drive_hits=0
         result=super().step(a)
         self.effects[-1].append(self.drive_hits)
@@ -74,7 +77,7 @@ class ChallengeWorld(LiveTransport):
     def drive(self,a):
         super().drive(a)
         if self.physical_k is None:return
-        b,f,effort=disturbance(self.challenge_params,self.physical_k,self.hi,self.challenge_yaw)
+        b,f,effort=self.applied_disturbance(self.physical_k)
         if not (np.any(b) or np.any(f)):return
         q=self.qv(self.base)[:,0];err=a[:3]-(q+b)
         err[2]=(err[2]+np.pi)%(2*np.pi)-np.pi

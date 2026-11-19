@@ -16,7 +16,7 @@ from audit_x7_chassis_range_proxy import PROXY_GUARD_M, RADIUS_M, gaps_from_frac
 from audit_x7_dock_sensor import BIAS, GUARD_SCAN_M, LAG, MAX_AGE, PERIOD, POS_ERROR_BOUND, WAVE
 from run_x7_mobile_bimanual import HZ
 from stress_x7_rgb_transport import (ArmIK, ChallengeWorld, EFFORT, GRIP_Z, HANDLE_HALF_SPAN, PARK_Y, POSES,
-    SCENARIOS, calc, digest, disturbance, execute, load_episode_assets, make_action, transport_prior, write_json)
+    SCENARIOS, calc, digest, execute, load_episode_assets, make_action, transport_prior, write_json)
 
 V2='015f9adc8fbad453c4dfcae875160f2e71948abfb55c8bf68ea4b4977e0133c7'
 CLEARANCE=.005
@@ -77,7 +77,7 @@ class FrontStopWorld(ChallengeWorld):
         if self.hold is not None:
             # Preserve the independent force and restricted authority from
             # ChallengeWorld. Stop never increases available actuator effort.
-            _,_,eff=disturbance(self.challenge_params,k,self.hi,self.challenge_yaw)
+            _,_,eff=self.applied_disturbance(k)
             p.setJointMotorControlArray(self.robot,self.base,p.VELOCITY_CONTROL,targetVelocities=[0.]*3,
                                         forces=np.asarray(EFFORT)*eff)
         self.last_physics_action=actual.copy();self.sub+=1
