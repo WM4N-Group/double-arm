@@ -61,10 +61,13 @@ class PayloadGateWorld(LoadAuditWorld):
         if self.payload_case=='masked-payload' and self.latch_k is not None and self.payload_mask_start is None:
             self.payload_mask_start=k
 
+    def payload_fractions(self,mounts,pose):
+        a,b=transform_mounts(mounts,pose,1)
+        return self.rear_fractions(a,b)
+
     def acquire_packet(self,k,ignored_truth_rear):
         raw,q=super().acquire_packet(k,ignored_truth_rear)
-        a,b=transform_mounts(self.load_mounts,q,1)
-        fraction=self.rear_fractions(a,b)
+        fraction=self.payload_fractions(self.load_mounts,q)
         valid=np.ones(len(fraction),dtype=bool)
         if self.payload_mask_start is not None and self.payload_mask_start<=k<self.payload_mask_start+80:
             valid &= abs(self.load_mounts[:,0]-.399)>.012

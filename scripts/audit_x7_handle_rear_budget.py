@@ -17,7 +17,7 @@ import pybullet as p
 
 from audit_x7_anchor_tolerance import FROZEN_CHECKPOINT
 from audit_x7_certified_retreat import OBSTACLE_TRAVEL,OBSTACLE_VMAX, REAR_OBSTACLE_SPEED_BOUND
-from audit_x7_chassis_range_proxy import MOUNT_PAD_M,transform_mounts
+from audit_x7_chassis_range_proxy import MOUNT_PAD_M
 from audit_x7_dock_sensor import BIAS,PERIOD,WAVE,GUARD_SCAN_M
 from audit_x7_payload_generalization import MIX,SCENES,PanelWorld,pose_for_control
 from audit_x7_payload_range_gate import HELD_RISE_M,merged_rear
@@ -71,19 +71,21 @@ class HandleBudgetWorld(PanelWorld):
         self.handle_origins=handle_mounts(est['tote']);self.handle_packets=[];self.entry_packets=[]
         super().__init__(asset,homes,true,est,arm,span,fixture)
 
+    def fixture_travel(self):
+        return OBSTACLE_TRAVEL
+
     def begin_sensor_substep(self,k):
         super().begin_sensor_substep(k)
         if self.obstacle is not None:
             start=self.birth['substep']+ACTOR_DELAY_SUBSTEPS
             # Supersedes the original fixture driver before this physics step.
             p.setJointMotorControl2(self.obstacle,0,p.POSITION_CONTROL,
-                targetPosition=OBSTACLE_TRAVEL if k>=start else 0.,force=12.,maxVelocity=OBSTACLE_VMAX)
+                targetPosition=self.fixture_travel() if k>=start else 0.,force=12.,maxVelocity=OBSTACLE_VMAX)
 
     def acquire_packet(self,k,truth_rear):
         raw,pose=super().acquire_packet(k,truth_rear)
         if not self.handles:return raw,pose
-        a,b=transform_mounts(self.handle_origins,pose,1)
-        f=self.rear_fractions(a,b);valid=np.ones(len(f),dtype=bool)
+        f=self.payload_fractions(self.handle_origins,pose);valid=np.ones(len(f),dtype=bool)
         if self.panel_case.startswith('masked-handle') and self.latch_k is not None and self.latch_k<k<self.latch_k+80:
             valid[0]=False
         nearest,unknown,hits=summarize_cells(f,valid)
@@ -105,8 +107,12 @@ class HandleBudgetWorld(PanelWorld):
                                      'rear_lower_bound_m':float(gap),'required_m':entry_margin()})
 
 
-def run_case(m,asset,arms,name,out,*,world_type=HandleBudgetWorld):
-    base,handles,budget=PANEL[name];scene,bias,overshoot,fixture=MIX[base]; true=SCENES[scene];obs=pose_for_control(true,bias,overshoot)
+def run_case(m,asset,arms,name,out,*,world_type=HandleBudgetWorld,scenario=None):
+    if scenario is None:
+        base,handles,budget=PANEL[name];scene,bias,overshoot,fixture=MIX[base];true=SCENES[scene]
+    else:
+        base,handles,budget,true,bias,overshoot,fixture=scenario
+    obs=pose_for_control(true,bias,overshoot)
     u,ph,meta=make_action(m,asset,arms,obs);n=meta['fitted_phase_durations'];homes=[SimpleNamespace(home=u[0,6+7*i:13+7*i]) for i in range(2)]
     w=world_type(asset,homes,true,obs,sum(n[:8]),n[8],fixture,name,handles,budget)
     t=execute(w,u,ph);w.audit_held(len(w.applied));r=guard_metrics(w,t,true)
