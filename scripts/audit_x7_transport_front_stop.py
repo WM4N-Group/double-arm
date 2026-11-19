@@ -50,6 +50,9 @@ class FrontStopWorld(ChallengeWorld):
         asset=a[0]; self.front_mounts=make_mounts(json.loads((asset.parent/'base-envelope.json').read_text()))[0]
         super().__init__(*a,params=params,layout=a[2])
 
+    def front_decision(self,raw,age,travel,rate):
+        return trip(raw,age,travel,rate)
+
     def drive(self,a):
         if self.physical_k is None:return super().drive(a)
         k=self.physical_k; tick=8*k+self.sub
@@ -67,7 +70,7 @@ class FrontStopWorld(ChallengeWorld):
         if self.queue and self.queue[0][0]<=tick:self.delivered=self.queue.popleft()
         if self.delivered is None:stamp,raw,motion=-1,None,0.
         else:_,stamp,raw,s=self.delivered;motion=max(0.,self.travel-s)
-        reason,lower,need=trip(raw,tick-stamp,motion,v)
+        reason,lower,need=self.front_decision(raw,tick-stamp,motion,v)
         if self.hold is None and k>=self.arm_frame and reason:
             self.hold=(self.last_physics_action if self.last_physics_action is not None else a).copy()
             self.events.append(dict(substep=tick,frame=k,reason=reason,sample_substep=stamp,
