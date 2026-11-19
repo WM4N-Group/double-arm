@@ -27,6 +27,9 @@ class LiveTransport(PickupWorld):
         self.model_delta=[]
         super().__init__(asset,homes,layout)
 
+    def policy_base_observation(self):
+        return self.qv(self.base)
+
     def step(self,a):
         k=len(self.applied); b=a.copy();active=False
         if k%CHUNK==0:
@@ -36,7 +39,7 @@ class LiveTransport(PickupWorld):
                 if self.net is None: delta=np.zeros_like(nom)
                 else:
                     img=capture_turn_rgb()
-                    x=feature(self.layout,self.qv(self.base),self.qv(sum(self.arm_ids,[])),self.qv(sum(self.jaws,[])),nom)
+                    x=feature(self.layout,self.policy_base_observation(),self.qv(sum(self.arm_ids,[])),self.qv(sum(self.jaws,[])),nom)
                     xm,xs,ym,ys=self.norm
                     with torch.inference_mode():
                         pred=self.net(torch.from_numpy(img[None]),torch.from_numpy(((x-xm)/xs)[None]))[0].numpy()
