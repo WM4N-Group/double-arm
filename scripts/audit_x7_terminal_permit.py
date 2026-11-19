@@ -71,11 +71,14 @@ class PermitWorld(PreslowWorld):
             return trip(raw,age,travel,rate)
         return decide_standoff(raw,age,travel,rate)
 
+    def primary_brake_encoder(self):
+        return self.qv(self.base)[:2].copy()
+
     def drive(self,a):
         k=self.physical_k
         if k is None:return super().drive(a)
         tick=8*k+self.sub;fixture_limit=self.fixture_brake_limit(k)
-        q=self.qv(self.base);pos=q[:2,0];vel=q[:2,1]
+        q=self.primary_brake_encoder();pos=q[:,0];vel=q[:,1]
         at_proof=self.insert<=k<self.end_proof
         loading=self.insert+SETTLE<=k<self.insert+SETTLE+PROOF
         if loading and self.proof_ref is None:self.proof_ref=pos.copy()

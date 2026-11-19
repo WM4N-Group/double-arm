@@ -46,17 +46,21 @@ class RedundantWorld(ExerciseWorld):
 
     def fixture_brake_limit(self,k):return limits(self.capacity_fixture,k,self.exposure)[0]
 
+    def backup_brake_encoder(self):
+        return self.qv(self.base)[:2].copy()
+
     def drive(self,a):
         frame=self.physical_k
         if frame is None:return super().drive(a)
-        tick=8*frame+self.sub;q=self.qv(self.base);pos,vel=q[:2,0],q[:2,1]
+        tick=8*frame+self.sub;q=self.backup_brake_encoder()
         super().drive(a)
         available=limits(self.capacity_fixture,frame,self.exposure)[1]
         command=np.zeros(2);effect=np.zeros(2)
-        if self.hold is not None:
+        if self.hold is not None and q is not None:
+            pos,vel=q[:,0],q[:,1]
             if self.backup_anchor is None:self.backup_anchor=pos.copy()
             # Simulate a parallel independent force-producing branch on every
-            # stop, sharing the same modeled pose/rate signal in this bench.
+            # stop. This original bench reads the same pose/rate channel by default.
             command=-150000.*(pos-self.backup_anchor)-23000.*vel
             effect=command*min(1.,available/max(np.linalg.norm(command),1e-12))
             if np.any(effect):
